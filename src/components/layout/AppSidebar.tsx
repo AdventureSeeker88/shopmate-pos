@@ -11,7 +11,7 @@ const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/products", label: "Products", icon: Package },
   { to: "/categories", label: "Categories", icon: Tags },
-  { to: "/suppliers", label: "Suppliers", icon: Truck },
+  { to: "/suppliers", label: "Supplier Mgmt", icon: Truck },
   { to: "/purchases", label: "Purchases", icon: Receipt },
   { to: "/customers", label: "Customers", icon: Users },
   { to: "/pos", label: "POS", icon: ShoppingCart },
