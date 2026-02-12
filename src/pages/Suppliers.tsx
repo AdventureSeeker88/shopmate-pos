@@ -1,50 +1,68 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useEffect, useState, useCallback } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, Pencil, Trash2, BookOpen, CreditCard } from "lucide-react";
-import { subscribeSuppliers, deleteSupplier, Supplier } from "@/lib/supplierService";
+import { Button } from "@/components/ui/button";
+import { RefreshCw, Wifi, WifiOff } from "lucide-react";
+import {
+  getAllSuppliers, syncAll, getPendingCount, startAutoSync,
+  Supplier,
+} from "@/lib/offlineSupplierService";
+import AddSupplierForm from "@/components/suppliers/AddSupplierForm";
+import SupplierList from "@/components/suppliers/SupplierListTable";
+import SupplierLedgerView from "@/components/suppliers/SupplierLedgerView";
+import PaySupplierDialog from "@/components/suppliers/PaySupplierOfflineDialog";
 import { useToast } from "@/hooks/use-toast";
-import AddSupplierDialog from "@/components/suppliers/AddSupplierDialog";
-import PaySupplierDialog from "@/components/suppliers/PaySupplierDialog";
-import SupplierLedger from "@/components/suppliers/SupplierLedger";
 
 const Suppliers = () => {
   const { toast } = useToast();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [search, setSearch] = useState("");
-  const [addOpen, setAddOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("list");
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
   const [paySupplier, setPaySupplier] = useState<Supplier | null>(null);
   const [ledgerSupplier, setLedgerSupplier] = useState<Supplier | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => {
-    const unsub = subscribeSuppliers(setSuppliers);
-    return unsub;
+  const loadSuppliers = useCallback(async () => {
+    const data = await getAllSuppliers();
+    setSuppliers(data);
+    const count = await getPendingCount();
+    setPendingCount(count);
   }, []);
 
-  const filtered = suppliers.filter(
-    (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.phone.includes(search)
-  );
+  useEffect(() => {
+    startAutoSync();
+    loadSuppliers();
 
-  const handleDelete = async (supplier: Supplier) => {
-    if (!window.confirm(`Delete supplier "${supplier.name}"?`)) return;
+    const handleOnline = () => { setOnline(true); loadSuppliers(); };
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [loadSuppliers]);
+
+  const handleManualSync = async () => {
+    setSyncing(true);
     try {
-      await deleteSupplier(supplier.id);
-      toast({ title: "Supplier Deleted" });
+      await syncAll();
+      await loadSuppliers();
+      toast({ title: "Sync Complete", description: "All data synced to Firebase" });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Sync Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
     }
   };
 
-  // If viewing ledger, show ledger view
+  // Ledger view
   if (ledgerSupplier) {
     return (
-      <div>
-        <SupplierLedger supplier={ledgerSupplier} onBack={() => setLedgerSupplier(null)} />
+      <div className="space-y-4">
+        <SupplierLedgerView supplier={ledgerSupplier} onBack={() => { setLedgerSupplier(null); loadSuppliers(); }} />
       </div>
     );
   }
@@ -52,86 +70,85 @@ const Suppliers = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-foreground">Suppliers</h1>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Add Supplier
-        </Button>
-      </div>
-
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search by name or phone..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
-
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>CNIC</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((s) => (
-              <TableRow key={s.id}>
-                <TableCell className="font-medium">{s.name}</TableCell>
-                <TableCell>{s.phone}</TableCell>
-                <TableCell>{s.cnic || "—"}</TableCell>
-                <TableCell className="text-right font-semibold">
-                  Rs. {(s.currentBalance || 0).toLocaleString()}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={s.balanceType === "payable" ? "destructive" : "default"}>
-                    {s.balanceType}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" title="Pay" onClick={() => setPaySupplier(s)}>
-                      <CreditCard className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" title="Ledger" onClick={() => setLedgerSupplier(s)}>
-                      <BookOpen className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" title="Edit" onClick={() => { setEditSupplier(s); setAddOpen(true); }}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" title="Delete" onClick={() => handleDelete(s)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  {suppliers.length === 0 ? "No suppliers yet. Add your first supplier." : "No results found."}
-                </TableCell>
-              </TableRow>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Supplier Management</h1>
+          <div className="flex items-center gap-3 mt-1">
+            <Badge variant={online ? "default" : "destructive"} className="text-xs gap-1">
+              {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {online ? "Online" : "Offline"}
+            </Badge>
+            {pendingCount > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {pendingCount} pending sync
+              </Badge>
             )}
-          </TableBody>
-        </Table>
+          </div>
+        </div>
+        {online && pendingCount > 0 && (
+          <Button variant="outline" size="sm" onClick={handleManualSync} disabled={syncing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing..." : "Sync Now"}
+          </Button>
+        )}
       </div>
 
-      <AddSupplierDialog
-        open={addOpen}
-        onOpenChange={(open) => { setAddOpen(open); if (!open) setEditSupplier(null); }}
-        editSupplier={editSupplier}
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="list">Supplier List</TabsTrigger>
+          <TabsTrigger value="add">Add Supplier</TabsTrigger>
+          <TabsTrigger value="ledger">Supplier Ledger</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list" className="mt-4">
+          <SupplierList
+            suppliers={suppliers}
+            onRefresh={loadSuppliers}
+            onEdit={(s) => { setEditSupplier(s); setActiveTab("add"); }}
+            onPay={(s) => setPaySupplier(s)}
+            onViewLedger={(s) => setLedgerSupplier(s)}
+          />
+        </TabsContent>
+
+        <TabsContent value="add" className="mt-4">
+          <AddSupplierForm
+            editSupplier={editSupplier}
+            onSaved={() => { setEditSupplier(null); setActiveTab("list"); loadSuppliers(); }}
+            onCancel={editSupplier ? () => { setEditSupplier(null); setActiveTab("list"); } : undefined}
+          />
+        </TabsContent>
+
+        <TabsContent value="ledger" className="mt-4">
+          {suppliers.length === 0 ? (
+            <p className="text-muted-foreground py-8 text-center">No suppliers yet. Add a supplier first.</p>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Select a supplier to view ledger:</p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {suppliers.map((s) => (
+                  <button
+                    key={s.localId}
+                    onClick={() => setLedgerSupplier(s)}
+                    className="rounded-lg border p-4 text-left hover:bg-accent transition-colors"
+                  >
+                    <p className="font-medium text-foreground">{s.name}</p>
+                    <p className="text-sm text-muted-foreground">{s.phone}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-sm font-semibold">Rs. {(s.currentBalance || 0).toLocaleString()}</span>
+                      <Badge variant={s.balanceType === "payable" ? "destructive" : "default"} className="text-xs">{s.balanceType}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
       <PaySupplierDialog
         open={!!paySupplier}
         onOpenChange={(open) => { if (!open) setPaySupplier(null); }}
         supplier={paySupplier}
+        onPaid={loadSuppliers}
       />
     </div>
   );
