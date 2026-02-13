@@ -11,9 +11,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import {
   ShoppingCart, Search, Plus, Trash2, Wifi, WifiOff,
-  ScanBarcode, Users, CreditCard, Printer, X, AlertCircle,
+  ScanBarcode, Users, CreditCard, X, AlertCircle, Package, Box, Smartphone,
 } from "lucide-react";
-import { getAllProducts, Product, checkIMEIExists, getIMEIsByProduct } from "@/lib/offlineProductService";
+import { getAllProducts, Product, getIMEIsByProduct, searchIMEIByPartial, IMEIRecord } from "@/lib/offlineProductService";
 import { getAllCategories, Category } from "@/lib/offlineCategoryService";
 import { getAllCustomers, addCustomer, Customer } from "@/lib/offlineCustomerService";
 import { addSale, SaleItem, Sale } from "@/lib/offlineSaleService";
@@ -21,6 +21,7 @@ import SaleInvoice from "@/components/sales/SaleInvoice";
 
 interface CartItem extends SaleItem {
   margin: number;
+  conditionType: "with_box" | "with_accessories" | "without";
 }
 
 const POS = () => {
@@ -40,27 +41,32 @@ const POS = () => {
 
   // Customer
   const [selectedCustomer, setSelectedCustomer] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
-  const [newCustName, setNewCustName] = useState("");
-  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCust, setNewCust] = useState({ name: "", phone: "", cnic: "", address: "" });
 
   // Payment
   const [paidAmount, setPaidAmount] = useState(0);
 
-  // IMEI scan
+  // IMEI search
   const [imeiSearch, setImeiSearch] = useState("");
+  const [imeiResults, setImeiResults] = useState<(IMEIRecord & { product?: Product })[]>([]);
+  const [showImeiResults, setShowImeiResults] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
 
   // Invoice
   const [printSale, setPrintSale] = useState<Sale | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Variation selection dialog
-  const [variationProduct, setVariationProduct] = useState<Product | null>(null);
-  const [selectedVarIdx, setSelectedVarIdx] = useState("");
-  const [varSalePrice, setVarSalePrice] = useState(0);
-  const [varQty, setVarQty] = useState(1);
-  const [varIMEIs, setVarIMEIs] = useState<string[]>([""]);
+  // Add to cart dialog (for mobile products)
+  const [addDialog, setAddDialog] = useState<{
+    product: Product;
+    selectedImei: string;
+    salePrice: number;
+    quantity: number;
+    conditionType: "with_box" | "with_accessories" | "without";
+    availableImeis: IMEIRecord[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,86 +87,184 @@ const POS = () => {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, [load]);
 
+  // Filter products by category and search
   const filteredProducts = products.filter(p => {
-    if (p.currentStock <= 0) return false;
     if (selectedCategory !== "all" && p.categoryId !== selectedCategory) return false;
-    if (searchQuery && !p.productName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !p.productName.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !p.brand?.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !p.model?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
 
-  const handleAddToCart = (p: Product) => {
+  // Customer search/auto-fill
+  const filteredCustomers = customers.filter(c => {
+    if (!customerSearch) return c.status === "active";
+    const q = customerSearch.toLowerCase();
+    return c.status === "active" && (c.name.toLowerCase().includes(q) || c.phone.includes(q));
+  });
+
+  const handleCustomerSearchSelect = (localId: string) => {
+    setSelectedCustomer(localId);
+    setCustomerSearch("");
+  };
+
+  // Auto-fill new customer if name/phone matches existing
+  const handleNewCustFieldBlur = () => {
+    if (!newCust.name && !newCust.phone) return;
+    const match = customers.find(c =>
+      (newCust.phone && c.phone === newCust.phone) ||
+      (newCust.name && c.name.toLowerCase() === newCust.name.toLowerCase() && c.phone)
+    );
+    if (match) {
+      setNewCust({ name: match.name, phone: match.phone, cnic: match.cnic || "", address: match.address || "" });
+      setSelectedCustomer(match.localId);
+      setAddCustomerOpen(false);
+      toast({ title: "Customer Found", description: `${match.name} auto-selected` });
+    }
+  };
+
+  // IMEI partial search (last 3-4 digits)
+  const handleImeiSearch = async (value: string) => {
+    setImeiSearch(value);
+    if (value.length >= 3) {
+      const results = await searchIMEIByPartial(value);
+      setImeiResults(results);
+      setShowImeiResults(results.length > 0);
+    } else {
+      setImeiResults([]);
+      setShowImeiResults(false);
+    }
+  };
+
+  const handleImeiSelect = (record: IMEIRecord & { product?: Product }) => {
+    if (!record.product) return;
+    const p = record.product;
+    // Check if this IMEI is already in cart
+    if (cart.some(c => c.imeiNumbers.includes(record.imei))) {
+      toast({ title: "Already in Cart", variant: "destructive" });
+      return;
+    }
+    const v = p.variations?.find(v => v.storage === p.storage && v.color === p.color) || p.variations?.[0];
+    setAddDialog({
+      product: p,
+      selectedImei: record.imei,
+      salePrice: v?.salePrice || p.salePrice,
+      quantity: 1,
+      conditionType: "with_box",
+      availableImeis: [],
+    });
+    setImeiSearch("");
+    setShowImeiResults(false);
+  };
+
+  const handleImeiKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const imei = imeiSearch.trim();
+    if (!imei) return;
+    // Try exact match first
+    for (const p of products) {
+      if (!p.isMobile) continue;
+      const imeis = await getIMEIsByProduct(p.localId);
+      const found = imeis.find(r => r.imei === imei && r.status === "in_stock");
+      if (found) {
+        handleImeiSelect({ ...found, product: p });
+        return;
+      }
+    }
+    // Try partial match
+    if (imei.length >= 3) {
+      const results = await searchIMEIByPartial(imei);
+      if (results.length === 1) {
+        handleImeiSelect(results[0]);
+      } else if (results.length > 1) {
+        setImeiResults(results);
+        setShowImeiResults(true);
+      } else {
+        toast({ title: "IMEI Not Found", variant: "destructive" });
+      }
+    }
+    setImeiSearch("");
+  };
+
+  // Click product → open add dialog
+  const handleProductClick = async (p: Product) => {
+    if (p.isMobile) {
+      const imeis = await getIMEIsByProduct(p.localId);
+      const available = imeis.filter(r => r.status === "in_stock" && !cart.some(c => c.imeiNumbers.includes(r.imei)));
+      setAddDialog({
+        product: p,
+        selectedImei: available[0]?.imei || "",
+        salePrice: p.variations?.[0]?.salePrice || p.salePrice,
+        quantity: 1,
+        conditionType: "with_box",
+        availableImeis: available,
+      });
+    } else {
+      // Non-mobile: direct add or increment
+      if (p.currentStock <= 0) {
+        toast({ title: "Out of Stock", variant: "destructive" });
+        return;
+      }
+      const existing = cart.find(c => c.productLocalId === p.localId);
+      if (existing) {
+        setCart(cart.map(c => c.productLocalId === p.localId
+          ? { ...c, quantity: c.quantity + 1, total: c.salePrice * (c.quantity + 1), margin: (c.salePrice - c.costPrice) * (c.quantity + 1) }
+          : c));
+      } else {
+        setCart([...cart, {
+          productLocalId: p.localId, productName: p.productName,
+          quantity: 1, costPrice: p.costPrice, salePrice: p.salePrice,
+          total: p.salePrice, imeiNumbers: [], margin: p.salePrice - p.costPrice,
+          conditionType: "without",
+        }]);
+      }
+    }
+  };
+
+  const handleConfirmAddToCart = () => {
+    if (!addDialog) return;
+    const { product: p, selectedImei, salePrice, quantity, conditionType } = addDialog;
+
+    if (p.isMobile && p.imeiTracking && !selectedImei) {
+      toast({ title: "Select IMEI", variant: "destructive" });
+      return;
+    }
     if (p.currentStock <= 0) {
       toast({ title: "Out of Stock", variant: "destructive" });
       return;
     }
-    if (p.isMobile) {
-      // Open variation/IMEI dialog
-      setVariationProduct(p);
-      setSelectedVarIdx(p.variations?.length > 0 ? "0" : "");
-      setVarSalePrice(p.variations?.[0]?.salePrice || p.salePrice);
-      setVarQty(1);
-      setVarIMEIs([""]);
-      return;
-    }
-    // Non-mobile: check if already in cart
-    const existing = cart.find(c => c.productLocalId === p.localId);
-    if (existing) {
-      setCart(cart.map(c => c.productLocalId === p.localId
-        ? { ...c, quantity: c.quantity + 1, total: c.salePrice * (c.quantity + 1), margin: (c.salePrice - c.costPrice) * (c.quantity + 1) }
-        : c
-      ));
-    } else {
-      setCart([...cart, {
-        productLocalId: p.localId, productName: p.productName,
-        quantity: 1, costPrice: p.costPrice, salePrice: p.salePrice,
-        total: p.salePrice, imeiNumbers: [], margin: p.salePrice - p.costPrice,
-      }]);
-    }
-  };
 
-  const handleAddMobileToCart = async () => {
-    if (!variationProduct) return;
-    const p = variationProduct;
-    const imeis = varIMEIs.filter(Boolean);
-    if (p.imeiTracking && imeis.length !== varQty) {
-      toast({ title: "IMEI Required", description: `Enter ${varQty} IMEI(s)`, variant: "destructive" });
-      return;
-    }
-    // Check IMEI uniqueness
-    for (const imei of imeis) {
-      if (cart.some(c => c.imeiNumbers.includes(imei))) {
-        toast({ title: "IMEI already in cart", variant: "destructive" });
-        return;
-      }
-    }
+    const costPrice = p.variations?.[0]?.costPrice || p.costPrice;
+    const condLabel = conditionType === "with_box" ? " (Box)" : conditionType === "with_accessories" ? " (Acc)" : "";
 
-    let varStorage = "";
-    let varColor = "";
-    let costPrice = p.costPrice;
-    if (p.variations?.length > 0 && selectedVarIdx !== "") {
-      const v = p.variations[Number(selectedVarIdx)];
-      varStorage = v.storage;
-      varColor = v.color;
-      costPrice = v.costPrice;
-    }
-
-    setCart([...cart, {
-      productLocalId: p.localId, productName: p.productName,
-      quantity: varQty, costPrice, salePrice: varSalePrice,
-      total: varSalePrice * varQty, imeiNumbers: imeis,
-      variationStorage: varStorage, variationColor: varColor,
-      margin: (varSalePrice - costPrice) * varQty,
+    setCart(prev => [...prev, {
+      productLocalId: p.localId,
+      productName: p.productName + condLabel,
+      quantity,
+      costPrice,
+      salePrice,
+      total: salePrice * quantity,
+      imeiNumbers: selectedImei ? [selectedImei] : [],
+      variationStorage: p.storage || p.variations?.[0]?.storage || "",
+      variationColor: p.color || p.variations?.[0]?.color || "",
+      margin: (salePrice - costPrice) * quantity,
+      conditionType,
     }]);
-    setVariationProduct(null);
+    setAddDialog(null);
   };
 
   const removeFromCart = (idx: number) => setCart(cart.filter((_, i) => i !== idx));
-
   const updateCartPrice = (idx: number, price: number) => {
     setCart(cart.map((c, i) => i === idx
       ? { ...c, salePrice: price, total: price * c.quantity, margin: (price - c.costPrice) * c.quantity }
-      : c
-    ));
+      : c));
+  };
+  const updateCartQty = (idx: number, qty: number) => {
+    if (qty < 1) return;
+    setCart(cart.map((c, i) => i === idx
+      ? { ...c, quantity: qty, total: c.salePrice * qty, margin: (c.salePrice - c.costPrice) * qty }
+      : c));
   };
 
   const totalAmount = cart.reduce((s, c) => s + c.total, 0);
@@ -168,56 +272,25 @@ const POS = () => {
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
   const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
 
-  const handleIMEIScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    const imei = imeiSearch.trim();
-    if (!imei) return;
-    // Find product by IMEI
-    for (const p of products) {
-      if (!p.isMobile) continue;
-      const imeis = await getIMEIsByProduct(p.localId);
-      const found = imeis.find(r => r.imei === imei && r.status === "in_stock");
-      if (found) {
-        // Add to cart
-        const v = p.variations?.[0];
-        setCart(prev => [...prev, {
-          productLocalId: p.localId, productName: p.productName,
-          quantity: 1, costPrice: v?.costPrice || p.costPrice,
-          salePrice: v?.salePrice || p.salePrice,
-          total: v?.salePrice || p.salePrice,
-          imeiNumbers: [imei],
-          variationStorage: v?.storage || "", variationColor: v?.color || "",
-          margin: (v?.salePrice || p.salePrice) - (v?.costPrice || p.costPrice),
-        }]);
-        setImeiSearch("");
-        toast({ title: "IMEI Added", description: `${p.productName} - ${imei}` });
-        return;
-      }
-    }
-    toast({ title: "IMEI Not Found", description: "This IMEI is not in stock", variant: "destructive" });
-    setImeiSearch("");
-  };
-
   const handleAddNewCustomer = async () => {
-    if (!newCustName.trim() || !newCustPhone.trim()) {
-      toast({ title: "Error", description: "Name and phone required", variant: "destructive" });
+    if (!newCust.name.trim() || !newCust.phone.trim()) {
+      toast({ title: "Name & Phone required", variant: "destructive" });
       return;
     }
-    const localId = await addCustomer({ name: newCustName, phone: newCustPhone, cnic: "", address: "", openingBalance: 0, balanceType: "payable" });
+    const localId = await addCustomer({
+      name: newCust.name, phone: newCust.phone, cnic: newCust.cnic, address: newCust.address,
+      openingBalance: 0, balanceType: "payable",
+    });
     const updated = await getAllCustomers();
     setCustomers(updated);
     setSelectedCustomer(localId);
     setAddCustomerOpen(false);
-    setNewCustName(""); setNewCustPhone("");
+    setNewCust({ name: "", phone: "", cnic: "", address: "" });
     toast({ title: "Customer Added" });
   };
 
   const handleCompleteSale = async () => {
-    if (cart.length === 0) {
-      toast({ title: "Cart Empty", variant: "destructive" });
-      return;
-    }
+    if (cart.length === 0) { toast({ title: "Cart Empty", variant: "destructive" }); return; }
     const cust = customers.find(c => c.localId === selectedCustomer);
     setSaving(true);
     try {
@@ -225,7 +298,7 @@ const POS = () => {
       const result = await addSale({
         customerLocalId: cust?.localId || "", customerName: cust?.name || "Walk-in Customer",
         customerId: cust?.id || "", customerPhone: cust?.phone || "",
-        items: cart.map(({ margin, ...rest }) => rest),
+        items: cart.map(({ margin, conditionType, ...rest }) => rest),
         totalAmount, paidAmount, paymentStatus: payStatus, saleDate: new Date().toISOString(),
       });
       setPrintSale(result.sale);
@@ -237,141 +310,231 @@ const POS = () => {
     } finally { setSaving(false); }
   };
 
+  // Group products by category for display
+  const getCategoryProducts = (catId: string) => filteredProducts.filter(p => p.categoryId === catId);
+  const uncategorized = filteredProducts.filter(p => !p.categoryId || !categories.find(c => c.localId === p.categoryId));
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-foreground">POS</h1>
-          <Badge variant={online ? "default" : "destructive"} className="text-xs gap-1">
+    <div className="h-[calc(100vh-80px)] flex flex-col gap-2">
+      {/* Header */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-foreground">POS</h1>
+          <Badge variant={online ? "default" : "destructive"} className="text-[10px] gap-1 h-5">
             {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             {online ? "Online" : "Offline"}
           </Badge>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2 min-h-0">
         {/* Left: Categories */}
-        <div className="lg:col-span-2 space-y-2">
-          <h3 className="text-sm font-semibold text-muted-foreground">Categories</h3>
-          <div className="flex lg:flex-col gap-1 flex-wrap">
-            <Button size="sm" variant={selectedCategory === "all" ? "default" : "outline"} className="text-xs justify-start"
-              onClick={() => setSelectedCategory("all")}>All</Button>
-            {categories.map(c => (
-              <Button key={c.localId} size="sm" variant={selectedCategory === c.localId ? "default" : "outline"}
-                className="text-xs justify-start" onClick={() => setSelectedCategory(c.localId)}>
-                {c.categoryName}
+        <div className="lg:col-span-2 flex lg:flex-col gap-1 overflow-auto">
+          <Button size="sm" variant={selectedCategory === "all" ? "default" : "outline"}
+            className="text-xs justify-start shrink-0 h-8" onClick={() => setSelectedCategory("all")}>
+            <Package className="h-3 w-3 mr-1" /> All
+          </Button>
+          {categories.map(c => {
+            const count = products.filter(p => p.categoryId === c.localId && p.currentStock > 0).length;
+            return (
+              <Button key={c.localId} size="sm"
+                variant={selectedCategory === c.localId ? "default" : "outline"}
+                className="text-xs justify-between shrink-0 h-8"
+                onClick={() => setSelectedCategory(c.localId)}>
+                <span className="truncate">{c.categoryName}</span>
+                <Badge variant="secondary" className="text-[9px] h-4 ml-1">{count}</Badge>
               </Button>
-            ))}
-          </div>
+            );
+          })}
         </div>
 
         {/* Middle: Products */}
-        <div className="lg:col-span-5 space-y-3">
-          <div className="flex gap-2">
+        <div className="lg:col-span-5 flex flex-col gap-2 min-h-0">
+          {/* Search bars */}
+          <div className="flex gap-1.5">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search products..." className="pl-9" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Search by name/brand..." className="pl-8 h-8 text-xs"
+                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             </div>
             <div className="relative flex-1">
-              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input ref={scanRef} placeholder="Scan IMEI..." className="pl-9" value={imeiSearch}
-                onChange={e => setImeiSearch(e.target.value)} onKeyDown={handleIMEIScan} />
-            </div>
-          </div>
-          <ScrollArea className="h-[calc(100vh-280px)]">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {filteredProducts.map(p => (
-                <Card key={p.localId} className="cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={() => handleAddToCart(p)}>
-                  <CardContent className="p-3">
-                    <p className="font-medium text-sm truncate">{p.productName}</p>
-                    {p.isMobile && <p className="text-xs text-muted-foreground">{p.brand} {p.model}</p>}
-                    <div className="flex justify-between items-center mt-1">
-                      <span className="text-sm font-bold text-primary">Rs. {p.salePrice.toLocaleString()}</span>
-                      <Badge variant={p.currentStock <= p.stockAlertQty ? "destructive" : "secondary"} className="text-[10px]">
-                        {p.currentStock}
-                      </Badge>
-                    </div>
-                    {p.variations?.length > 0 && (
-                      <p className="text-[10px] text-muted-foreground mt-1">{p.variations.length} variant(s)</p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-              {filteredProducts.length === 0 && (
-                <div className="col-span-3 text-center py-12 text-muted-foreground">
-                  {loading ? "Loading..." : "No products found"}
+              <ScanBarcode className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input ref={scanRef} placeholder="IMEI (last 3-4 digits)..." className="pl-8 h-8 text-xs"
+                value={imeiSearch} onChange={e => handleImeiSearch(e.target.value)} onKeyDown={handleImeiKeyDown} />
+              {/* IMEI dropdown results */}
+              {showImeiResults && imeiResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-auto">
+                  {imeiResults.map(r => (
+                    <button key={r.localId}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent/50 border-b last:border-0 flex justify-between"
+                      onClick={() => handleImeiSelect(r)}>
+                      <div>
+                        <span className="font-medium">{r.product?.productName}</span>
+                        <span className="text-muted-foreground ml-2">{r.product?.brand} {r.product?.model}</span>
+                      </div>
+                      <span className="font-mono text-primary">{r.imei}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Products list - category wise */}
+          <ScrollArea className="flex-1">
+            {selectedCategory === "all" ? (
+              <div className="space-y-3">
+                {categories.map(cat => {
+                  const catProducts = getCategoryProducts(cat.localId);
+                  if (catProducts.length === 0) return null;
+                  return (
+                    <div key={cat.localId}>
+                      <div className="flex items-center gap-2 mb-1.5 sticky top-0 bg-background/95 backdrop-blur py-1 z-10">
+                        <h3 className="text-xs font-semibold text-primary uppercase tracking-wide">{cat.categoryName}</h3>
+                        <Separator className="flex-1" />
+                        <Badge variant="outline" className="text-[9px] h-4">{catProducts.length}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {catProducts.map(p => <ProductCard key={p.localId} product={p} onClick={() => handleProductClick(p)} />)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {uncategorized.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase">Other</h3>
+                      <Separator className="flex-1" />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {uncategorized.map(p => <ProductCard key={p.localId} product={p} onClick={() => handleProductClick(p)} />)}
+                    </div>
+                  </div>
+                )}
+                {filteredProducts.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground text-sm">
+                    {loading ? "Loading..." : "No products found"}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {filteredProducts.map(p => <ProductCard key={p.localId} product={p} onClick={() => handleProductClick(p)} />)}
+                {filteredProducts.length === 0 && (
+                  <div className="col-span-3 text-center py-12 text-muted-foreground text-sm">
+                    {loading ? "Loading..." : "No products in this category"}
+                  </div>
+                )}
+              </div>
+            )}
           </ScrollArea>
         </div>
 
-        {/* Right: Cart */}
-        <div className="lg:col-span-5 space-y-3">
-          {/* Customer */}
-          <Card>
-            <CardContent className="p-3 space-y-2">
+        {/* Right: Cart & Customer */}
+        <div className="lg:col-span-5 flex flex-col gap-2 min-h-0">
+          {/* Customer Section */}
+          <Card className="shrink-0">
+            <CardContent className="p-2.5 space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold flex items-center gap-1"><Users className="h-3 w-3" /> Customer</Label>
-                <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setAddCustomerOpen(true)}>
-                  <Plus className="h-3 w-3 mr-1" /> New
+                <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => setAddCustomerOpen(true)}>
+                  <Plus className="h-3 w-3 mr-0.5" /> New
                 </Button>
               </div>
-              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Walk-in Customer" /></SelectTrigger>
-                <SelectContent>
-                  {customers.filter(c => c.status === "active").map(c => (
-                    <SelectItem key={c.localId} value={c.localId}>
-                      {c.name} — {c.phone} {c.currentBalance > 0 ? `(Rs.${c.currentBalance.toLocaleString()} ${c.balanceType})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedCustomerData && selectedCustomerData.currentBalance > 0 && (
-                <div className="text-xs flex justify-between bg-muted/50 rounded px-2 py-1">
-                  <span>Previous Balance</span>
-                  <span className="font-bold text-destructive">Rs. {selectedCustomerData.currentBalance.toLocaleString()} ({selectedCustomerData.balanceType})</span>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <Input placeholder="Search by name or phone..." className="pl-7 h-7 text-xs"
+                  value={customerSearch} onChange={e => setCustomerSearch(e.target.value)}
+                  onFocus={() => setCustomerSearch(customerSearch)} />
+                {customerSearch && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-36 overflow-auto">
+                    {filteredCustomers.map(c => (
+                      <button key={c.localId}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/50 border-b last:border-0"
+                        onClick={() => { handleCustomerSearchSelect(c.localId); }}>
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-muted-foreground ml-2">{c.phone}</span>
+                        {c.currentBalance > 0 && (
+                          <Badge variant="destructive" className="text-[9px] ml-2 h-4">
+                            Rs.{c.currentBalance.toLocaleString()} {c.balanceType}
+                          </Badge>
+                        )}
+                      </button>
+                    ))}
+                    {filteredCustomers.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">No customer found</div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {selectedCustomerData && (
+                <div className="bg-muted/50 rounded-md p-2 text-xs space-y-0.5">
+                  <div className="flex justify-between">
+                    <span className="font-semibold">{selectedCustomerData.name}</span>
+                    <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setSelectedCustomer("")}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="text-muted-foreground">{selectedCustomerData.phone}</div>
+                  {selectedCustomerData.cnic && <div className="text-muted-foreground">CNIC: {selectedCustomerData.cnic}</div>}
+                  {selectedCustomerData.currentBalance > 0 && (
+                    <div className="text-destructive font-semibold">
+                      Previous: Rs. {selectedCustomerData.currentBalance.toLocaleString()} ({selectedCustomerData.balanceType})
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* Cart Items */}
-          <Card>
-            <CardHeader className="p-3 pb-1">
-              <CardTitle className="text-sm flex items-center gap-1"><ShoppingCart className="h-4 w-4" /> Cart ({cart.length})</CardTitle>
+          <Card className="flex-1 min-h-0 flex flex-col">
+            <CardHeader className="p-2.5 pb-1 shrink-0">
+              <CardTitle className="text-sm flex items-center gap-1">
+                <ShoppingCart className="h-4 w-4" /> Cart
+                <Badge variant="secondary" className="text-[10px] ml-1 h-4">{cart.length}</Badge>
+              </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <ScrollArea className="max-h-[300px]">
+            <CardContent className="p-2.5 pt-0 flex-1 min-h-0">
+              <ScrollArea className="h-full">
                 {cart.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">No items in cart</p>
+                  <div className="text-xs text-muted-foreground text-center py-8">
+                    <ShoppingCart className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                    Select items to add
+                  </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {cart.map((item, idx) => (
-                      <div key={idx} className="rounded-lg border p-2 space-y-1">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">{item.productName}</p>
+                      <div key={idx} className="rounded-md border bg-card p-2 space-y-1">
+                        <div className="flex justify-between items-start gap-1">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold truncate">{item.productName}</p>
                             {(item.variationStorage || item.variationColor) && (
-                              <p className="text-[10px] text-primary">{item.variationStorage} / {item.variationColor}</p>
+                              <p className="text-[10px] text-primary">{item.variationStorage}/{item.variationColor}</p>
+                            )}
+                            {item.imeiNumbers.length > 0 && (
+                              <p className="text-[10px] text-muted-foreground font-mono">IMEI: {item.imeiNumbers.join(", ")}</p>
                             )}
                           </div>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeFromCart(idx)}>
-                            <X className="h-3 w-3 text-destructive" />
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removeFromCart(idx)}>
+                            <Trash2 className="h-3 w-3 text-destructive" />
                           </Button>
                         </div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-muted-foreground">Qty: {item.quantity}</span>
-                          <span className="text-muted-foreground">Cost: Rs.{item.costPrice.toLocaleString()}</span>
-                          <div className="flex items-center gap-1 ml-auto">
+                        <div className="flex items-center gap-1.5 text-[10px]">
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-muted-foreground">Qty:</span>
+                            <Input type="number" min={1} className="h-5 w-12 text-[10px] px-1 text-center"
+                              value={item.quantity} onChange={e => updateCartQty(idx, Number(e.target.value))} />
+                          </div>
+                          <span className="text-muted-foreground">Cost:{item.costPrice.toLocaleString()}</span>
+                          <div className="flex items-center gap-0.5 ml-auto">
                             <span className="text-muted-foreground">Price:</span>
-                            <Input type="number" className="h-6 w-20 text-xs" value={item.salePrice}
+                            <Input type="number" className="h-5 w-16 text-[10px] px-1" value={item.salePrice}
                               onChange={e => updateCartPrice(idx, Number(e.target.value))} />
                           </div>
                         </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-primary">Margin: Rs.{item.margin.toLocaleString()}</span>
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-primary">Margin: {item.margin.toLocaleString()}</span>
                           <span className="font-bold">Rs. {item.total.toLocaleString()}</span>
                         </div>
                       </div>
@@ -384,28 +547,29 @@ const POS = () => {
 
           {/* Payment */}
           {cart.length > 0 && (
-            <Card>
-              <CardContent className="p-3 space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total</span>
-                  <span className="text-xl font-bold">Rs. {totalAmount.toLocaleString()}</span>
+            <Card className="shrink-0">
+              <CardContent className="p-2.5 space-y-2">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs text-muted-foreground">Total</span>
+                  <span className="text-lg font-bold">Rs. {totalAmount.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Total Margin</span>
-                  <span className="font-bold text-primary">Rs. {totalMargin.toLocaleString()}</span>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-muted-foreground">Margin</span>
+                  <span className="font-semibold text-primary">Rs. {totalMargin.toLocaleString()}</span>
                 </div>
                 <Separator />
-                <div className="space-y-1">
-                  <Label className="text-xs">Paid Amount</Label>
-                  <Input type="number" placeholder="0" value={paidAmount || ""} onChange={e => setPaidAmount(Number(e.target.value))} />
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs shrink-0">Paid</Label>
+                  <Input type="number" className="h-8 text-sm" placeholder="0"
+                    value={paidAmount || ""} onChange={e => setPaidAmount(Number(e.target.value))} />
                 </div>
                 {remainingAmount > 0 && (
-                  <div className="rounded border border-destructive/30 bg-destructive/5 p-2 flex justify-between items-center text-xs">
+                  <div className="rounded border border-destructive/30 bg-destructive/5 p-1.5 flex justify-between items-center text-xs">
                     <span className="flex items-center gap-1 text-destructive"><AlertCircle className="h-3 w-3" /> Remaining</span>
                     <span className="font-bold text-destructive">Rs. {remainingAmount.toLocaleString()}</span>
                   </div>
                 )}
-                <Button className="w-full" size="lg" onClick={handleCompleteSale} disabled={saving}>
+                <Button className="w-full h-10" onClick={handleCompleteSale} disabled={saving}>
                   <CreditCard className="h-4 w-4 mr-2" />
                   {saving ? "Processing..." : `Complete Sale — Rs. ${totalAmount.toLocaleString()}`}
                 </Button>
@@ -415,78 +579,131 @@ const POS = () => {
         </div>
       </div>
 
-      {/* Mobile Variation Dialog */}
-      <Dialog open={!!variationProduct} onOpenChange={open => { if (!open) setVariationProduct(null); }}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{variationProduct?.productName} — Select Options</DialogTitle></DialogHeader>
-          {variationProduct && (
-            <div className="space-y-4">
-              {variationProduct.variations?.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Variation</Label>
-                  <Select value={selectedVarIdx} onValueChange={v => {
-                    setSelectedVarIdx(v);
-                    const vr = variationProduct.variations[Number(v)];
-                    if (vr) setVarSalePrice(vr.salePrice);
-                  }}>
-                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {variationProduct.variations.map((v, i) => (
-                        <SelectItem key={i} value={String(i)}>{v.storage} / {v.color} — Rs.{v.salePrice.toLocaleString()}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+      {/* Add to Cart Dialog (Mobile Products) */}
+      <Dialog open={!!addDialog} onOpenChange={open => { if (!open) setAddDialog(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{addDialog?.product.productName}</DialogTitle>
+          </DialogHeader>
+          {addDialog && (
+            <div className="space-y-3">
+              {/* Brand/Model info */}
+              {addDialog.product.isMobile && (
+                <div className="text-xs text-muted-foreground">
+                  {addDialog.product.brand} {addDialog.product.model} • Stock: {addDialog.product.currentStock}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
+
+              {/* Condition type buttons */}
+              <div className="space-y-1">
+                <Label className="text-xs">Condition</Label>
+                <div className="flex gap-1.5">
+                  {([
+                    { val: "with_box" as const, icon: Box, label: "With Box" },
+                    { val: "with_accessories" as const, icon: Smartphone, label: "With Acc" },
+                    { val: "without" as const, icon: Package, label: "Without" },
+                  ]).map(({ val, icon: Icon, label }) => (
+                    <Button key={val} size="sm" variant={addDialog.conditionType === val ? "default" : "outline"}
+                      className="flex-1 text-[10px] h-7 gap-1"
+                      onClick={() => setAddDialog({ ...addDialog, conditionType: val })}>
+                      <Icon className="h-3 w-3" />{label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* IMEI selection */}
+              {addDialog.product.imeiTracking && (
+                <div className="space-y-1">
+                  <Label className="text-xs">IMEI Number</Label>
+                  {addDialog.availableImeis.length > 0 ? (
+                    <Select value={addDialog.selectedImei} onValueChange={v => setAddDialog({ ...addDialog, selectedImei: v })}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select IMEI" /></SelectTrigger>
+                      <SelectContent>
+                        {addDialog.availableImeis.map(r => (
+                          <SelectItem key={r.localId} value={r.imei} className="text-xs font-mono">{r.imei}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input placeholder="Enter IMEI" className="h-8 text-xs font-mono"
+                      value={addDialog.selectedImei}
+                      onChange={e => setAddDialog({ ...addDialog, selectedImei: e.target.value })} />
+                  )}
+                </div>
+              )}
+
+              {/* Variation selection */}
+              {addDialog.product.variations?.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Variant</Label>
+                  <div className="flex gap-1 flex-wrap">
+                    {addDialog.product.variations.map((v, i) => (
+                      <Button key={i} size="sm" variant="outline"
+                        className="text-[10px] h-6 px-2"
+                        onClick={() => setAddDialog({ ...addDialog, salePrice: v.salePrice })}>
+                        {v.storage}/{v.color} - Rs.{v.salePrice.toLocaleString()}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Qty & Price */}
+              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Quantity</Label>
-                  <Input type="number" min={1} value={varQty} onChange={e => {
-                    const q = Number(e.target.value) || 1;
-                    setVarQty(q);
-                    setVarIMEIs(Array.from({ length: q }, (_, i) => varIMEIs[i] || ""));
-                  }} />
+                  <Input type="number" min={1} className="h-8 text-xs"
+                    value={addDialog.quantity} onChange={e => setAddDialog({ ...addDialog, quantity: Number(e.target.value) || 1 })} />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Sale Price</Label>
-                  <Input type="number" value={varSalePrice} onChange={e => setVarSalePrice(Number(e.target.value))} />
+                  <Input type="number" className="h-8 text-xs"
+                    value={addDialog.salePrice} onChange={e => setAddDialog({ ...addDialog, salePrice: Number(e.target.value) })} />
                 </div>
               </div>
-              {variationProduct.imeiTracking && (
-                <div className="space-y-2">
-                  <Label className="text-xs">IMEI Numbers ({varIMEIs.filter(Boolean).length}/{varQty})</Label>
-                  {varIMEIs.map((imei, idx) => (
-                    <Input key={idx} placeholder={`IMEI #${idx + 1}`} value={imei}
-                      onChange={e => setVarIMEIs(prev => prev.map((v, i) => i === idx ? e.target.value.trim() : v))} />
-                  ))}
-                </div>
-              )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setVariationProduct(null)}>Cancel</Button>
-            <Button onClick={handleAddMobileToCart}>Add to Cart</Button>
+            <Button variant="outline" size="sm" onClick={() => setAddDialog(null)}>Cancel</Button>
+            <Button size="sm" onClick={handleConfirmAddToCart}>
+              <ShoppingCart className="h-3 w-3 mr-1" /> Add to Cart
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Add Customer Dialog */}
+      {/* Add Customer Dialog - all fields */}
       <Dialog open={addCustomerOpen} onOpenChange={setAddCustomerOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Add New Customer</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Add / Find Customer</DialogTitle></DialogHeader>
+          <div className="space-y-2">
             <div className="space-y-1">
-              <Label>Name *</Label>
-              <Input placeholder="Customer name" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
+              <Label className="text-xs">Name *</Label>
+              <Input placeholder="Customer name" className="h-8 text-xs"
+                value={newCust.name} onChange={e => setNewCust({ ...newCust, name: e.target.value })}
+                onBlur={handleNewCustFieldBlur} />
             </div>
             <div className="space-y-1">
-              <Label>Phone *</Label>
-              <Input placeholder="03001234567" value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)} />
+              <Label className="text-xs">Phone *</Label>
+              <Input placeholder="03001234567" className="h-8 text-xs"
+                value={newCust.phone} onChange={e => setNewCust({ ...newCust, phone: e.target.value })}
+                onBlur={handleNewCustFieldBlur} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">CNIC</Label>
+              <Input placeholder="Optional" className="h-8 text-xs"
+                value={newCust.cnic} onChange={e => setNewCust({ ...newCust, cnic: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Address</Label>
+              <Input placeholder="Optional" className="h-8 text-xs"
+                value={newCust.address} onChange={e => setNewCust({ ...newCust, address: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddCustomerOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddNewCustomer}>Add Customer</Button>
+            <Button variant="outline" size="sm" onClick={() => setAddCustomerOpen(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleAddNewCustomer}>Add Customer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -496,5 +713,25 @@ const POS = () => {
     </div>
   );
 };
+
+// Product card component
+const ProductCard = ({ product: p, onClick }: { product: Product; onClick: () => void }) => (
+  <div className={`rounded-md border p-2 cursor-pointer transition-all hover:border-primary/50 hover:shadow-sm ${p.currentStock <= 0 ? "opacity-40 pointer-events-none" : ""}`}
+    onClick={onClick}>
+    <p className="text-xs font-semibold truncate">{p.productName}</p>
+    {p.isMobile && (
+      <p className="text-[10px] text-muted-foreground truncate">{p.brand} {p.model}</p>
+    )}
+    <div className="flex justify-between items-center mt-1">
+      <span className="text-xs font-bold text-primary">Rs.{p.salePrice.toLocaleString()}</span>
+      <Badge variant={p.currentStock <= (p.stockAlertQty || 0) ? "destructive" : "secondary"} className="text-[9px] h-4 px-1">
+        {p.currentStock}
+      </Badge>
+    </div>
+    {p.variations?.length > 0 && (
+      <p className="text-[9px] text-muted-foreground mt-0.5">{p.variations.length} variant(s)</p>
+    )}
+  </div>
+);
 
 export default POS;
