@@ -47,6 +47,7 @@ const POS = () => {
 
   // Payment
   const [paidAmount, setPaidAmount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "wallet">("cash");
 
   // IMEI search
   const [imeiSearch, setImeiSearch] = useState("");
@@ -309,7 +310,7 @@ const POS = () => {
       });
       setPrintSale(result.sale);
       toast({ title: "Sale Completed!", description: `Invoice: ${result.invoiceNumber}` });
-      setCart([]); setSelectedCustomer(""); setPaidAmount(0);
+      setCart([]); setSelectedCustomer(""); setPaidAmount(0); setPaymentMethod("cash");
       await load();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -578,6 +579,20 @@ const POS = () => {
                   <span className="font-semibold text-primary">Rs. {totalMargin.toLocaleString()}</span>
                 </div>
                 <Separator />
+                {/* Payment Method */}
+                <div className="flex items-center gap-1">
+                  {(["cash", "bank", "wallet"] as const).map(m => (
+                    <button key={m} type="button"
+                      className={`flex-1 text-[11px] font-medium py-1.5 rounded-md border transition-all ${
+                        paymentMethod === m
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "bg-muted/50 text-muted-foreground border-border hover:bg-accent"
+                      }`}
+                      onClick={() => setPaymentMethod(m)}>
+                      {m === "cash" ? "💵 Cash" : m === "bank" ? "🏦 Bank" : "📱 Wallet"}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex items-center gap-2">
                   <Label className="text-xs shrink-0">Paid</Label>
                   <Input type="number" className="h-8 text-sm" placeholder="0"
