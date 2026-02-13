@@ -8,6 +8,7 @@ import { db as firestore } from "@/lib/firebase";
 export interface Customer {
   id: string;
   localId: string;
+  customerId: string;
   name: string;
   phone: string;
   cnic: string;
@@ -55,6 +56,7 @@ const getDB = async () => {
 };
 
 const generateLocalId = () => `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+const generateCustomerId = () => `CUST-${String(Date.now()).slice(-6)}${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
 const isOnline = () => navigator.onLine;
 
 const saveCustomerToFirebase = async (c: Customer): Promise<string> => {
@@ -81,12 +83,14 @@ const saveLedgerToFirebase = async (entry: CustomerLedgerEntry, firebaseCustomer
 export const addCustomer = async (data: {
   name: string; phone: string; cnic: string; address: string;
   openingBalance: number; balanceType: "payable" | "receivable";
+  createdAt?: string;
 }) => {
   const db = await getDB();
   const localId = generateLocalId();
+  const customerId = generateCustomerId();
   const customer: Customer = {
-    id: "", localId, ...data, currentBalance: data.openingBalance,
-    status: "active", createdAt: new Date().toISOString(), syncStatus: "pending",
+    id: "", localId, customerId, ...data, currentBalance: data.openingBalance,
+    status: "active", createdAt: data.createdAt || new Date().toISOString(), syncStatus: "pending",
   };
   if (isOnline()) {
     try { customer.id = await saveCustomerToFirebase(customer); customer.syncStatus = "synced"; } catch (e) { console.warn(e); }
@@ -123,10 +127,11 @@ const pullFromFirebase = async () => {
     const snap = await getDocs(query(collection(firestore, "customers"), orderBy("createdAt", "desc")));
     const existing = await db.getAll("customers");
     for (const docSnap of snap.docs) {
-      if (!existing.find(c => c.id === docSnap.id)) {
+      const alreadyExists = existing.find(c => c.id === docSnap.id || (c.name === docSnap.data().name && c.phone === docSnap.data().phone));
+      if (!alreadyExists) {
         const d = docSnap.data();
         await db.put("customers", {
-          id: docSnap.id, localId: generateLocalId(),
+          id: docSnap.id, localId: generateLocalId(), customerId: d.customerId || generateCustomerId(),
           name: d.name || "", phone: d.phone || "", cnic: d.cnic || "", address: d.address || "",
           openingBalance: d.openingBalance || 0, balanceType: d.balanceType || "payable",
           currentBalance: d.currentBalance || 0, status: d.status || "active",

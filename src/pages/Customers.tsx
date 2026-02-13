@@ -18,10 +18,12 @@ import {
   startCustomerAutoSync, Customer,
 } from "@/lib/offlineCustomerService";
 import CustomerLedgerView from "@/components/customers/CustomerLedgerView";
+import { format } from "date-fns";
 
 const emptyForm = {
   name: "", phone: "", cnic: "", address: "",
   openingBalance: 0, balanceType: "payable" as "payable" | "receivable",
+  createdAt: new Date().toISOString().split("T")[0],
 };
 
 const Customers = () => {
@@ -59,13 +61,13 @@ const Customers = () => {
     setSaving(true);
     try {
       if (editCustomer) {
-        await updateCustomer(editCustomer.localId, form);
+        await updateCustomer(editCustomer.localId, { ...form, createdAt: new Date(form.createdAt).toISOString() });
         toast({ title: "Customer Updated" });
       } else {
-        await addCustomer(form);
+        await addCustomer({ ...form, createdAt: new Date(form.createdAt).toISOString() });
         toast({ title: "Customer Added" });
       }
-      setForm(emptyForm);
+      setForm({ ...emptyForm, createdAt: new Date().toISOString().split("T")[0] });
       setEditCustomer(null);
       setTab("list");
       await load();
@@ -76,7 +78,11 @@ const Customers = () => {
 
   const handleEdit = (c: Customer) => {
     setEditCustomer(c);
-    setForm({ name: c.name, phone: c.phone, cnic: c.cnic, address: c.address, openingBalance: c.openingBalance, balanceType: c.balanceType });
+    setForm({
+      name: c.name, phone: c.phone, cnic: c.cnic, address: c.address,
+      openingBalance: c.openingBalance, balanceType: c.balanceType,
+      createdAt: new Date(c.createdAt).toISOString().split("T")[0],
+    });
     setTab("add");
   };
 
@@ -160,19 +166,26 @@ const Customers = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Customer ID</TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Phone</TableHead>
+                        <TableHead>CNIC</TableHead>
+                        <TableHead>Address</TableHead>
                         <TableHead className="text-right">Balance</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {customers.map(c => (
                         <TableRow key={c.localId}>
+                          <TableCell className="font-mono text-xs">{c.customerId || "—"}</TableCell>
                           <TableCell className="font-medium">{c.name}</TableCell>
                           <TableCell>{c.phone}</TableCell>
+                          <TableCell>{c.cnic || "—"}</TableCell>
+                          <TableCell>{c.address || "—"}</TableCell>
                           <TableCell className="text-right font-mono">Rs. {c.currentBalance.toLocaleString()}</TableCell>
                           <TableCell>
                             <Badge variant={c.balanceType === "payable" ? "destructive" : "default"} className="text-xs">{c.balanceType}</Badge>
@@ -180,6 +193,7 @@ const Customers = () => {
                           <TableCell>
                             <Badge variant={c.status === "active" ? "default" : "secondary"} className="text-xs">{c.status}</Badge>
                           </TableCell>
+                          <TableCell className="text-xs">{format(new Date(c.createdAt), "dd MMM yyyy")}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
                               <Button variant="ghost" size="icon" onClick={() => setLedgerCustomer(c)} title="View Ledger"><BookOpen className="h-4 w-4" /></Button>
@@ -232,13 +246,17 @@ const Customers = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label>Date (Created At) *</Label>
+                  <Input type="date" value={form.createdAt} onChange={e => setForm(f => ({ ...f, createdAt: e.target.value }))} />
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <Button onClick={handleSave} disabled={saving}>
                   {saving ? "Saving..." : editCustomer ? "Update Customer" : "Add Customer"}
                 </Button>
                 {editCustomer && (
-                  <Button variant="outline" onClick={() => { setEditCustomer(null); setForm(emptyForm); }}>Cancel</Button>
+                  <Button variant="outline" onClick={() => { setEditCustomer(null); setForm({ ...emptyForm, createdAt: new Date().toISOString().split("T")[0] }); }}>Cancel</Button>
                 )}
               </div>
             </CardContent>
