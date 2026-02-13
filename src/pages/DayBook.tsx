@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import {
   Calendar, TrendingUp, TrendingDown, DollarSign, ChevronLeft, ChevronRight,
-  ShoppingCart, Package, Receipt, ArrowDownRight, ArrowUpRight,
+  ShoppingCart, Package, Receipt, ArrowDownRight, ArrowUpRight, Wifi, WifiOff,
 } from "lucide-react";
 import { getAllSales, Sale } from "@/lib/offlineSaleService";
 import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
@@ -29,6 +29,7 @@ const DayBook = () => {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(navigator.onLine);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,7 +41,14 @@ const DayBook = () => {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const on = () => { setOnline(true); load(); };
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, [load]);
 
   // Filter by date
   const daySales = sales.filter(s => isSameDay(new Date(s.saleDate), currentDate));
@@ -108,19 +116,25 @@ const DayBook = () => {
           <h1 className="text-2xl font-bold text-foreground">Day Book</h1>
           <p className="text-sm text-muted-foreground">Daily financial summary</p>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subDays(d, 1))}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card">
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-            <Input type="date" className="h-6 text-xs border-0 p-0 w-28" 
-              value={format(currentDate, "yyyy-MM-dd")} 
-              onChange={e => setCurrentDate(new Date(e.target.value))} />
+        <div className="flex items-center gap-2">
+          <Badge variant={online ? "default" : "destructive"} className="gap-1 text-xs">
+            {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {online ? "Online" : "Offline"}
+          </Badge>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subDays(d, 1))}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              <Input type="date" className="h-6 text-xs border-0 p-0 w-28" 
+                value={format(currentDate, "yyyy-MM-dd")} 
+                onChange={e => setCurrentDate(new Date(e.target.value))} />
+            </div>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => addDays(d, 1))}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => addDays(d, 1))}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 

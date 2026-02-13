@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Printer, Tag, Package } from "lucide-react";
+import { Search, Printer, Tag, Package, Wifi, WifiOff } from "lucide-react";
 import { getAllProducts, Product } from "@/lib/offlineProductService";
 import { getAllCategories, Category } from "@/lib/offlineCategoryService";
 import { getShopSettings } from "@/lib/shopSettings";
@@ -15,6 +15,7 @@ const PriceList = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(navigator.onLine);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [printMode, setPrintMode] = useState<"list" | "labels">("list");
   const printRef = useRef<HTMLDivElement>(null);
@@ -28,7 +29,14 @@ const PriceList = () => {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const on = () => { setOnline(true); load(); };
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, [load]);
 
   const q = search.toLowerCase();
   const filtered = products.filter(p =>
@@ -92,6 +100,10 @@ const PriceList = () => {
           <p className="text-sm text-muted-foreground">Search, view & print price labels</p>
         </div>
         <div className="flex items-center gap-2">
+          <Badge variant={online ? "default" : "destructive"} className="gap-1 text-xs">
+            {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {online ? "Online" : "Offline"}
+          </Badge>
           <div className="flex border rounded-md overflow-hidden">
             <button className={`px-3 py-1.5 text-xs font-medium transition-colors ${printMode === "list" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"}`}
               onClick={() => setPrintMode("list")}>List</button>
