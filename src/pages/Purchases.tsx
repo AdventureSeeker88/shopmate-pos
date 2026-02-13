@@ -14,12 +14,13 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Receipt, Plus, Trash2, Wifi, WifiOff, ShoppingCart, Eye, Undo2,
-  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle,
+  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer,
 } from "lucide-react";
 import {
   getAllPurchases, addPurchase, deletePurchase, addPurchaseReturn,
   startPurchaseAutoSync, Purchase, PurchaseItem,
 } from "@/lib/offlinePurchaseService";
+import PurchaseInvoice from "@/components/purchases/PurchaseInvoice";
 import { getAllProducts, Product, checkIMEIExists } from "@/lib/offlineProductService";
 import { getAllSuppliers, Supplier, recalculateBalanceLocal } from "@/lib/offlineSupplierService";
 import { format } from "date-fns";
@@ -51,8 +52,9 @@ const Purchases = () => {
   const [imeiMode, setImeiMode] = useState<"manual" | "scan">("manual");
   const scanInputRef = useRef<HTMLInputElement>(null);
 
-  // View & Return
+  // View & Return & Print
   const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
+  const [printPurchase, setPrintPurchase] = useState<Purchase | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnItem, setReturnItem] = useState<PurchaseItem | null>(null);
   const [returnQty, setReturnQty] = useState(1);
@@ -170,15 +172,22 @@ const Purchases = () => {
     setSaving(true);
     try {
       const payStatus = paidAmount >= totalAmount ? "paid" : paidAmount > 0 ? "partial" : "pending";
-      await addPurchase({
+      const localId = await addPurchase({
         supplierLocalId: supplier.localId, supplierName: supplier.name, supplierId: supplier.id,
         items, totalAmount, paidAmount, paymentStatus: payStatus, purchaseDate,
       });
       // Recalculate supplier balance after purchase
       await recalculateBalanceLocal(supplier.localId);
+      await load();
+      // Show print option
+      const savedPurchase: Purchase = {
+        id: "", localId, supplierLocalId: supplier.localId, supplierName: supplier.name,
+        supplierId: supplier.id, items: [...items], totalAmount, paidAmount,
+        paymentStatus: payStatus, purchaseDate, createdAt: new Date().toISOString(), syncStatus: "pending",
+      };
+      setPrintPurchase(savedPurchase);
       toast({ title: "Purchase Saved", description: payStatus !== "paid" ? `Pending: Rs. ${pendingAmount.toLocaleString()} added to supplier payable` : "Fully paid" });
       setItems([]); setSelectedSupplier(""); setPaidAmount(0); setTab("list");
-      await load();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally { setSaving(false); }
@@ -315,6 +324,7 @@ const Purchases = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => setPrintPurchase(p)} title="Print Invoice"><Printer className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => setViewPurchase(p)}><Eye className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => handleDeletePurchase(p)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                             </div>
@@ -741,6 +751,13 @@ const Purchases = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Print Invoice */}
+      <PurchaseInvoice
+        open={!!printPurchase}
+        onOpenChange={open => { if (!open) setPrintPurchase(null); }}
+        purchase={printPurchase}
+      />
     </div>
   );
 };

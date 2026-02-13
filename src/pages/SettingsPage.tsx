@@ -1,58 +1,109 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { getShopSettings, saveShopSettings, ShopSettings } from "@/lib/shopSettings";
+import { Store, Printer, Save } from "lucide-react";
 
 const SettingsPage = () => {
-  const [shopName, setShopName] = useState("My Mobile Shop");
-  const [currency, setCurrency] = useState("PKR");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
   const { toast } = useToast();
+  const [settings, setSettings] = useState<ShopSettings>(getShopSettings());
+
+  useEffect(() => {
+    setSettings(getShopSettings());
+  }, []);
 
   const handleSave = () => {
-    // Will save to Firebase later
-    localStorage.setItem("shopSettings", JSON.stringify({ shopName, currency, phone, address }));
+    saveShopSettings(settings);
     toast({ title: "Settings saved", description: "Shop settings updated successfully." });
   };
 
+  const update = (key: keyof ShopSettings, value: string) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
   return (
-    <div>
-      <h1 className="mb-6 text-3xl font-bold text-foreground">Settings</h1>
-      <Card className="max-w-lg">
-        <CardHeader>
-          <CardTitle>Shop Settings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Shop Name</Label>
-            <Input value={shopName} onChange={(e) => setShopName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Currency</Label>
-            <Select value={currency} onValueChange={setCurrency}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PKR">₨ PKR</SelectItem>
-                <SelectItem value="INR">₹ INR</SelectItem>
-                <SelectItem value="USD">$ USD</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Phone</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+92 300 1234567" />
-          </div>
-          <div className="space-y-2">
-            <Label>Address</Label>
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Shop address" />
-          </div>
-          <Button onClick={handleSave} className="w-full">Save Settings</Button>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Configure your shop details for invoices and receipts</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Shop Information */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Store className="h-4 w-4" /> Shop Information</CardTitle>
+            <CardDescription>These details appear on all printed invoices</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Shop Name *</Label>
+              <Input value={settings.shopName} onChange={e => update("shopName", e.target.value)} placeholder="e.g. Saim Mobile" />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input value={settings.phone} onChange={e => update("phone", e.target.value)} placeholder="+92 300 1234567" />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input type="email" value={settings.email} onChange={e => update("email", e.target.value)} placeholder="shop@example.com" />
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Textarea value={settings.address} onChange={e => update("address", e.target.value)} placeholder="Shop No. 5, Main Market, City" rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>Tagline (optional)</Label>
+              <Input value={settings.tagline} onChange={e => update("tagline", e.target.value)} placeholder="e.g. Your Trusted Mobile Partner" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Regional Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Printer className="h-4 w-4" /> Invoice Preview</CardTitle>
+            <CardDescription>How your invoice header will look</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Currency</Label>
+              <Select value={settings.currency} onValueChange={v => update("currency", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PKR">₨ PKR</SelectItem>
+                  <SelectItem value="INR">₹ INR</SelectItem>
+                  <SelectItem value="USD">$ USD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
+            {/* Live preview */}
+            <div className="rounded-lg border p-4 bg-white text-black space-y-1 text-center">
+              <p className="text-xl font-extrabold tracking-wide">{settings.shopName || "Shop Name"}</p>
+              {settings.address && <p className="text-xs text-gray-500">{settings.address}</p>}
+              {settings.phone && <p className="text-xs text-gray-500">Phone: {settings.phone}</p>}
+              {settings.email && <p className="text-xs text-gray-500">Email: {settings.email}</p>}
+              {settings.tagline && <p className="text-xs italic text-gray-400 mt-1">{settings.tagline}</p>}
+              <div className="border-t border-gray-300 mt-3 pt-2">
+                <p className="text-sm font-bold tracking-widest uppercase">Purchase Invoice</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Button onClick={handleSave} size="lg" className="gap-2">
+        <Save className="h-4 w-4" /> Save Settings
+      </Button>
     </div>
   );
 };
