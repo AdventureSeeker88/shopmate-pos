@@ -147,6 +147,30 @@ export const addPurchase = async (data: {
       } catch (e) { console.warn(e); }
     }
     await supplierLedgerDB.put("supplierLedger", ledgerEntry);
+
+    // If paid amount > 0, also add a payment ledger entry so balance shows only pending
+    if (data.paidAmount > 0) {
+      const payLedgerLocalId = generateLocalId();
+      const payLedgerEntry = {
+        id: "", localId: payLedgerLocalId,
+        supplierId: data.supplierId, supplierLocalId: data.supplierLocalId,
+        date: data.purchaseDate, type: "payment" as const,
+        description: `Payment on purchase - ${data.items.map(i => i.productName).join(", ")}`,
+        amount: data.paidAmount, createdAt: new Date().toISOString(), syncStatus: "pending" as const,
+      };
+      if (isOnline() && data.supplierId) {
+        try {
+          const ref2 = await addFireDoc(collection(fs, "supplierLedger"), {
+            supplierId: data.supplierId, date: Timestamp.fromDate(new Date(data.purchaseDate)),
+            type: "payment", description: payLedgerEntry.description, amount: data.paidAmount,
+            createdAt: Timestamp.now(),
+          });
+          payLedgerEntry.id = ref2.id;
+          (payLedgerEntry as any).syncStatus = "synced";
+        } catch (e) { console.warn(e); }
+      }
+      await supplierLedgerDB.put("supplierLedger", payLedgerEntry);
+    }
   } catch (e) { console.warn("Ledger entry failed:", e); }
 
   return localId;
