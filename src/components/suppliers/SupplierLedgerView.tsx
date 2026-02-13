@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft } from "lucide-react";
-import { getSupplierLedger, Supplier, SupplierLedgerEntry } from "@/lib/offlineSupplierService";
+import { Card, CardContent } from "@/components/ui/card";
+import { ArrowLeft, RefreshCw } from "lucide-react";
+import { getSupplierLedger, getAllSuppliers, Supplier, SupplierLedgerEntry } from "@/lib/offlineSupplierService";
 import { format } from "date-fns";
 
 interface Props {
@@ -11,15 +12,26 @@ interface Props {
   onBack: () => void;
 }
 
-const SupplierLedgerView = ({ supplier, onBack }: Props) => {
+const SupplierLedgerView = ({ supplier: initialSupplier, onBack }: Props) => {
   const [entries, setEntries] = useState<SupplierLedgerEntry[]>([]);
+  const [supplier, setSupplier] = useState<Supplier>(initialSupplier);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadEntries = async () => {
-    const data = await getSupplierLedger(supplier.localId);
-    setEntries(data);
-  };
+  const loadData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [data, allSuppliers] = await Promise.all([
+        getSupplierLedger(supplier.localId),
+        getAllSuppliers(),
+      ]);
+      setEntries(data);
+      // Get latest supplier balance
+      const updated = allSuppliers.find(s => s.localId === supplier.localId);
+      if (updated) setSupplier(updated);
+    } finally { setRefreshing(false); }
+  }, [supplier.localId]);
 
-  useEffect(() => { loadEntries(); }, [supplier.localId]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   // Calculate running balance
   let runningBalance = supplier.openingBalance;
@@ -28,6 +40,9 @@ const SupplierLedgerView = ({ supplier, onBack }: Props) => {
     else runningBalance -= entry.amount;
     return { ...entry, runningBalance };
   });
+
+  const totalPurchases = entries.filter(e => e.type === "purchase").reduce((s, e) => s + e.amount, 0);
+  const totalPayments = entries.filter(e => e.type === "payment").reduce((s, e) => s + e.amount, 0);
 
   return (
     <div className="space-y-4">
@@ -39,11 +54,40 @@ const SupplierLedgerView = ({ supplier, onBack }: Props) => {
           <h2 className="text-xl font-bold text-foreground">{supplier.name} — Ledger</h2>
           <p className="text-sm text-muted-foreground">Phone: {supplier.phone}</p>
         </div>
-        <div className="ml-auto text-right">
-          <p className="text-sm text-muted-foreground">Current Balance</p>
-          <p className="text-lg font-bold text-foreground">Rs. {supplier.currentBalance?.toLocaleString() || 0}</p>
-          <Badge variant={supplier.balanceType === "payable" ? "destructive" : "default"}>{supplier.balanceType}</Badge>
+        <div className="ml-auto flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={loadData} disabled={refreshing}>
+            <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+          </Button>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Current Balance</p>
+            <p className="text-lg font-bold text-foreground">Rs. {supplier.currentBalance?.toLocaleString() || 0}</p>
+            <Badge variant={supplier.balanceType === "payable" ? "destructive" : "default"}>{supplier.balanceType}</Badge>
+          </div>
         </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-xs text-muted-foreground">Total Purchases</p>
+            <p className="text-lg font-bold text-foreground">Rs. {totalPurchases.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-xs text-muted-foreground">Total Payments</p>
+            <p className="text-lg font-bold text-primary">Rs. {totalPayments.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-xs text-muted-foreground">Net Balance</p>
+            <p className={`text-lg font-bold ${supplier.balanceType === "payable" ? "text-destructive" : "text-primary"}`}>
+              Rs. {supplier.currentBalance?.toLocaleString() || 0}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="rounded-md border">
@@ -75,7 +119,7 @@ const SupplierLedgerView = ({ supplier, onBack }: Props) => {
                 </TableCell>
                 <TableCell>{entry.description}</TableCell>
                 <TableCell className="text-right">
-                  <span className={entry.type === "payment" ? "text-green-600" : "text-destructive"}>
+                  <span className={entry.type === "payment" ? "text-primary" : "text-destructive"}>
                     {entry.type === "payment" ? "-" : "+"}Rs. {entry.amount.toLocaleString()}
                   </span>
                 </TableCell>
