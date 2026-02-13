@@ -48,6 +48,7 @@ const POS = () => {
   // Payment
   const [paidAmount, setPaidAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "wallet">("cash");
+  const [balanceAdjust, setBalanceAdjust] = useState(0);
 
   // IMEI search
   const [imeiSearch, setImeiSearch] = useState("");
@@ -113,6 +114,7 @@ const POS = () => {
   const handleCustomerSearchSelect = (localId: string) => {
     setSelectedCustomer(localId);
     setCustomerSearch("");
+    setBalanceAdjust(0);
   };
 
   // Auto-fill new customer if name/phone matches existing
@@ -276,7 +278,8 @@ const POS = () => {
 
   const totalAmount = cart.reduce((s, c) => s + c.total, 0);
   const totalMargin = cart.reduce((s, c) => s + c.margin, 0);
-  const remainingAmount = Math.max(0, totalAmount - paidAmount);
+  const grandTotal = Math.max(0, totalAmount - balanceAdjust);
+  const remainingAmount = Math.max(0, grandTotal - paidAmount);
   const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
 
   const handleAddNewCustomer = async () => {
@@ -301,16 +304,28 @@ const POS = () => {
     const cust = customers.find(c => c.localId === selectedCustomer);
     setSaving(true);
     try {
-      const payStatus = paidAmount >= totalAmount ? "paid" : paidAmount > 0 ? "partial" : "pending";
+      const actualTotal = grandTotal;
+      const payStatus = paidAmount >= actualTotal ? "paid" : paidAmount > 0 ? "partial" : "pending";
       const result = await addSale({
         customerLocalId: cust?.localId || "", customerName: cust?.name || "Walk-in Customer",
         customerId: cust?.id || "", customerPhone: cust?.phone || "",
         items: cart.map(({ margin, conditionType, ...rest }) => rest),
-        totalAmount, paidAmount, paymentStatus: payStatus, saleDate: new Date().toISOString(),
+        totalAmount: actualTotal, paidAmount, paymentStatus: payStatus, saleDate: new Date().toISOString(),
       });
+      // If balance adjustment was used, record it as a payment from previous balance
+      if (balanceAdjust > 0 && cust) {
+        const { addCustomerLedgerEntry, recalculateCustomerBalance } = await import("@/lib/offlineCustomerService");
+        await addCustomerLedgerEntry({
+          customerId: cust.id, customerLocalId: cust.localId,
+          date: new Date().toISOString(), type: "payment",
+          description: `Previous balance adjusted on ${result.invoiceNumber}`,
+          amount: balanceAdjust,
+        });
+        await recalculateCustomerBalance(cust.localId);
+      }
       setPrintSale(result.sale);
       toast({ title: "Sale Completed!", description: `Invoice: ${result.invoiceNumber}` });
-      setCart([]); setSelectedCustomer(""); setPaidAmount(0); setPaymentMethod("cash");
+      setCart([]); setSelectedCustomer(""); setPaidAmount(0); setPaymentMethod("cash"); setBalanceAdjust(0);
       await load();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -492,16 +507,38 @@ const POS = () => {
                 <div className="bg-muted/50 rounded-md p-2 text-xs space-y-0.5">
                   <div className="flex justify-between">
                     <span className="font-semibold">{selectedCustomerData.name}</span>
-                    <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setSelectedCustomer("")}>
+                    <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => { setSelectedCustomer(""); setBalanceAdjust(0); }}>
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
                   <div className="text-muted-foreground">{selectedCustomerData.phone}</div>
                   {selectedCustomerData.cnic && <div className="text-muted-foreground">CNIC: {selectedCustomerData.cnic}</div>}
                   {selectedCustomerData.currentBalance > 0 && (
-                    <div className="text-destructive font-semibold">
-                      Previous: Rs. {selectedCustomerData.currentBalance.toLocaleString()} ({selectedCustomerData.balanceType})
-                    </div>
+                    <>
+                      <div className="text-destructive font-semibold">
+                        Previous: Rs. {selectedCustomerData.currentBalance.toLocaleString()} ({selectedCustomerData.balanceType})
+                      </div>
+                      {selectedCustomerData.balanceType === "payable" && cart.length > 0 && (
+                        <div className="pt-1 border-t border-border mt-1 space-y-1">
+                          <Label className="text-[10px] text-primary font-semibold">Adjust Previous Balance</Label>
+                          <div className="flex items-center gap-1">
+                            <Input type="number" min={0} max={Math.min(selectedCustomerData.currentBalance, totalAmount)}
+                              className="h-6 text-[10px] w-20 px-1" placeholder="0"
+                              value={balanceAdjust || ""} onChange={e => {
+                                const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance, totalAmount);
+                                setBalanceAdjust(v);
+                              }} />
+                            <Button type="button" size="sm" variant="outline" className="h-6 text-[9px] px-1.5"
+                              onClick={() => setBalanceAdjust(Math.min(selectedCustomerData.currentBalance, totalAmount))}>
+                              Full
+                            </Button>
+                            {balanceAdjust > 0 && (
+                              <Badge variant="default" className="text-[9px] h-4">-Rs.{balanceAdjust.toLocaleString()}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -571,8 +608,18 @@ const POS = () => {
             <Card className="shrink-0">
               <CardContent className="p-2.5 space-y-2">
                 <div className="flex justify-between items-baseline">
-                  <span className="text-xs text-muted-foreground">Total</span>
-                  <span className="text-lg font-bold">Rs. {totalAmount.toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground">Subtotal</span>
+                  <span className="text-sm font-semibold">Rs. {totalAmount.toLocaleString()}</span>
+                </div>
+                {balanceAdjust > 0 && (
+                  <div className="flex justify-between items-baseline text-primary">
+                    <span className="text-xs">Balance Adjust</span>
+                    <span className="text-sm font-semibold">- Rs. {balanceAdjust.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold">Grand Total</span>
+                  <span className="text-lg font-bold">Rs. {grandTotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-muted-foreground">Margin</span>
@@ -606,7 +653,7 @@ const POS = () => {
                 )}
                 <Button className="w-full h-10" onClick={handleCompleteSale} disabled={saving}>
                   <CreditCard className="h-4 w-4 mr-2" />
-                  {saving ? "Processing..." : `Complete Sale — Rs. ${totalAmount.toLocaleString()}`}
+                  {saving ? "Processing..." : `Complete Sale — Rs. ${grandTotal.toLocaleString()}`}
                 </Button>
               </CardContent>
             </Card>

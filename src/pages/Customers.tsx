@@ -11,13 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Users, Plus, Pencil, Trash2, Wifi, WifiOff, BookOpen,
+  Users, Plus, Pencil, Trash2, Wifi, WifiOff, BookOpen, CreditCard,
 } from "lucide-react";
 import {
   getAllCustomers, addCustomer, updateCustomer, deleteCustomer,
   startCustomerAutoSync, Customer,
 } from "@/lib/offlineCustomerService";
 import CustomerLedgerView from "@/components/customers/CustomerLedgerView";
+import PayCustomerDialog from "@/components/customers/PayCustomerDialog";
 import { format } from "date-fns";
 
 const emptyForm = {
@@ -37,6 +38,7 @@ const Customers = () => {
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Customer | null>(null);
   const [ledgerCustomer, setLedgerCustomer] = useState<Customer | null>(null);
+  const [payCustomer, setPayCustomer] = useState<Customer | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -196,6 +198,7 @@ const Customers = () => {
                           <TableCell className="text-xs">{format(new Date(c.createdAt), "dd MMM yyyy")}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => setPayCustomer(c)} title="Receive Payment"><CreditCard className="h-4 w-4 text-primary" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => setLedgerCustomer(c)} title="View Ledger"><BookOpen className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => handleEdit(c)}><Pencil className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => setDeleteConfirm(c)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
@@ -275,6 +278,14 @@ const Customers = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Pay Customer Dialog */}
+      <PayCustomerDialog
+        open={!!payCustomer}
+        onOpenChange={open => { if (!open) setPayCustomer(null); }}
+        customer={payCustomer}
+        onPaid={() => load()}
+      />
     </div>
   );
 };

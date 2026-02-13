@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Receipt, Plus, Trash2, Wifi, WifiOff, ShoppingCart, Eye, Undo2,
-  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer,
+  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer, Users,
 } from "lucide-react";
 import {
   getAllPurchases, addPurchase, deletePurchase, addPurchaseReturn,
@@ -23,6 +23,7 @@ import {
 import PurchaseInvoice from "@/components/purchases/PurchaseInvoice";
 import { getAllProducts, Product, checkIMEIExists } from "@/lib/offlineProductService";
 import { getAllSuppliers, Supplier, recalculateBalanceLocal } from "@/lib/offlineSupplierService";
+import { getAllCustomers, Customer, addCustomerLedgerEntry, recalculateCustomerBalance } from "@/lib/offlineCustomerService";
 import { format } from "date-fns";
 
 const Purchases = () => {
@@ -30,12 +31,15 @@ const Purchases = () => {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
   const [tab, setTab] = useState("list");
 
   // Add purchase form
+  const [purchaseSource, setPurchaseSource] = useState<"supplier" | "customer">("supplier");
   const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState<PurchaseItem[]>([]);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -65,10 +69,11 @@ const Purchases = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, pr, s] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers()]);
+      const [p, pr, s, cu] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers(), getAllCustomers()]);
       setPurchases(p);
       setProducts(pr);
       setSuppliers(s);
+      setCustomers(cu);
     } finally { setLoading(false); }
   }, []);
 
@@ -84,6 +89,7 @@ const Purchases = () => {
 
   const selectedProductData = products.find(p => p.localId === selectedProduct);
   const selectedSupplierData = suppliers.find(s => s.localId === selectedSupplier);
+  const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
 
   const handleProductSelect = (productLocalId: string) => {
     const p = products.find(pr => pr.localId === productLocalId);
@@ -184,29 +190,60 @@ const Purchases = () => {
   const pendingAmount = totalAmount - paidAmount;
 
   const handleSavePurchase = async () => {
-    if (!selectedSupplier || items.length === 0) {
-      toast({ title: "Error", description: "Select supplier and add items", variant: "destructive" });
+    const isCustomerPurchase = purchaseSource === "customer";
+    if (isCustomerPurchase && !selectedCustomer) {
+      toast({ title: "Error", description: "Select a customer", variant: "destructive" });
       return;
     }
-    const supplier = suppliers.find(s => s.localId === selectedSupplier);
-    if (!supplier) return;
+    if (!isCustomerPurchase && !selectedSupplier) {
+      toast({ title: "Error", description: "Select a supplier", variant: "destructive" });
+      return;
+    }
+    if (items.length === 0) {
+      toast({ title: "Error", description: "Add items", variant: "destructive" });
+      return;
+    }
+
+    const supplier = isCustomerPurchase ? null : suppliers.find(s => s.localId === selectedSupplier);
+    const customer = isCustomerPurchase ? customers.find(c => c.localId === selectedCustomer) : null;
+    const sourceName = isCustomerPurchase ? (customer?.name || "") : (supplier?.name || "");
+
     setSaving(true);
     try {
       const payStatus = paidAmount >= totalAmount ? "paid" : paidAmount > 0 ? "partial" : "pending";
       const localId = await addPurchase({
-        supplierLocalId: supplier.localId, supplierName: supplier.name, supplierId: supplier.id,
+        supplierLocalId: isCustomerPurchase ? "" : (supplier?.localId || ""),
+        supplierName: isCustomerPurchase ? `[Customer] ${sourceName}` : sourceName,
+        supplierId: isCustomerPurchase ? "" : (supplier?.id || ""),
         items, totalAmount, paidAmount, paymentStatus: payStatus, purchaseDate,
       });
-      await recalculateBalanceLocal(supplier.localId);
+      
+      if (!isCustomerPurchase && supplier) {
+        await recalculateBalanceLocal(supplier.localId);
+      }
+
+      // For customer purchase, add ledger entry
+      if (isCustomerPurchase && customer) {
+        await addCustomerLedgerEntry({
+          customerId: customer.id, customerLocalId: customer.localId,
+          date: purchaseDate, type: "payment",
+          description: `Purchase from customer - ${items.map(i => i.productName).join(", ")}`,
+          amount: paidAmount,
+        });
+        await recalculateCustomerBalance(customer.localId);
+      }
+
       await load();
       const savedPurchase: Purchase = {
-        id: "", localId, supplierLocalId: supplier.localId, supplierName: supplier.name,
-        supplierId: supplier.id, items: [...items], totalAmount, paidAmount,
+        id: "", localId, supplierLocalId: isCustomerPurchase ? "" : (supplier?.localId || ""),
+        supplierName: isCustomerPurchase ? `[Customer] ${sourceName}` : sourceName,
+        supplierId: isCustomerPurchase ? "" : (supplier?.id || ""),
+        items: [...items], totalAmount, paidAmount,
         paymentStatus: payStatus, purchaseDate, createdAt: new Date().toISOString(), syncStatus: "pending",
       };
       setPrintPurchase(savedPurchase);
-      toast({ title: "Purchase Saved", description: payStatus !== "paid" ? `Pending: Rs. ${pendingAmount.toLocaleString()} added to supplier payable` : "Fully paid" });
-      setItems([]); setSelectedSupplier(""); setPaidAmount(0); setTab("list");
+      toast({ title: "Purchase Saved", description: payStatus !== "paid" ? `Pending: Rs. ${pendingAmount.toLocaleString()}` : "Fully paid" });
+      setItems([]); setSelectedSupplier(""); setSelectedCustomer(""); setPaidAmount(0); setTab("list");
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally { setSaving(false); }
@@ -363,26 +400,88 @@ const Purchases = () => {
           <Card>
             <CardHeader><CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4" /> Purchase Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Supplier *</Label>
-                  <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                    <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                    <SelectContent>
-                      {suppliers.map(s => (
-                        <SelectItem key={s.localId} value={s.localId}>
-                          {s.name} — Rs. {s.currentBalance.toLocaleString()} ({s.balanceType})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {/* Source Toggle */}
+              <div className="space-y-2">
+                <Label>Purchase From</Label>
+                <div className="flex gap-2">
+                  <Button size="sm" variant={purchaseSource === "supplier" ? "default" : "outline"}
+                    onClick={() => { setPurchaseSource("supplier"); setSelectedCustomer(""); }}
+                    className="flex-1">
+                    <Package className="h-4 w-4 mr-1.5" /> Supplier
+                  </Button>
+                  <Button size="sm" variant={purchaseSource === "customer" ? "default" : "outline"}
+                    onClick={() => { setPurchaseSource("customer"); setSelectedSupplier(""); }}
+                    className="flex-1">
+                    <Users className="h-4 w-4 mr-1.5" /> Customer
+                  </Button>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {purchaseSource === "supplier" ? (
+                  <div className="space-y-2">
+                    <Label>Supplier *</Label>
+                    <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+                      <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                      <SelectContent>
+                        {suppliers.map(s => (
+                          <SelectItem key={s.localId} value={s.localId}>
+                            {s.name} — Rs. {s.currentBalance.toLocaleString()} ({s.balanceType})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Customer *</Label>
+                    <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                      <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
+                      <SelectContent>
+                        {customers.filter(c => c.status === "active").map(c => (
+                          <SelectItem key={c.localId} value={c.localId}>
+                            {c.name} — {c.phone} {c.currentBalance > 0 ? `(Rs. ${c.currentBalance.toLocaleString()} ${c.balanceType})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Purchase Date</Label>
                   <Input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
                 </div>
               </div>
-              {selectedSupplierData && (
+
+              {/* Customer details display */}
+              {purchaseSource === "customer" && selectedCustomerData && (
+                <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-primary" />
+                    <span className="font-semibold text-sm">{selectedCustomerData.name}</span>
+                    <Badge variant="outline" className="text-xs">{selectedCustomerData.customerId}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <span>Phone: {selectedCustomerData.phone}</span>
+                    {selectedCustomerData.cnic && <span>CNIC: {selectedCustomerData.cnic}</span>}
+                    {selectedCustomerData.address && <span className="col-span-2">Address: {selectedCustomerData.address}</span>}
+                  </div>
+                  {selectedCustomerData.currentBalance > 0 && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs text-muted-foreground">Current Balance</span>
+                      <span className="font-bold text-sm">
+                        Rs. {selectedCustomerData.currentBalance.toLocaleString()}{" "}
+                        <Badge variant={selectedCustomerData.balanceType === "payable" ? "destructive" : "default"} className="text-xs">
+                          {selectedCustomerData.balanceType}
+                        </Badge>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Supplier balance display */}
+              {purchaseSource === "supplier" && selectedSupplierData && (
                 <div className="rounded-lg border bg-muted/50 p-3 flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Current Balance</span>
                   <span className="font-bold text-foreground">
