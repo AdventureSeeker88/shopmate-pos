@@ -43,6 +43,7 @@ const SupplierLedgerView = ({ supplier: initialSupplier, onBack }: Props) => {
 
   const totalPurchases = entries.filter(e => e.type === "purchase").reduce((s, e) => s + e.amount, 0);
   const totalPayments = entries.filter(e => e.type === "payment").reduce((s, e) => s + e.amount, 0);
+  const pendingPayable = totalPurchases - totalPayments + (supplier.openingBalance || 0);
 
   return (
     <div className="space-y-4">
@@ -67,7 +68,7 @@ const SupplierLedgerView = ({ supplier: initialSupplier, onBack }: Props) => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-xs text-muted-foreground">Total Purchases</p>
@@ -80,12 +81,22 @@ const SupplierLedgerView = ({ supplier: initialSupplier, onBack }: Props) => {
             <p className="text-lg font-bold text-primary">Rs. {totalPayments.toLocaleString()}</p>
           </CardContent>
         </Card>
+        <Card className="border-destructive/30">
+          <CardContent className="p-4 text-center">
+            <p className="text-xs text-muted-foreground">Pending Payable</p>
+            <p className={`text-lg font-bold ${pendingPayable > 0 ? "text-destructive" : "text-primary"}`}>
+              Rs. {Math.abs(pendingPayable).toLocaleString()}
+            </p>
+            <p className="text-[10px] text-muted-foreground">{pendingPayable > 0 ? "You Owe" : pendingPayable < 0 ? "Overpaid" : "Settled"}</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <p className="text-xs text-muted-foreground">Net Balance</p>
+            <p className="text-xs text-muted-foreground">Current Balance</p>
             <p className={`text-lg font-bold ${supplier.balanceType === "payable" ? "text-destructive" : "text-primary"}`}>
               Rs. {supplier.currentBalance?.toLocaleString() || 0}
             </p>
+            <Badge variant={supplier.balanceType === "payable" ? "destructive" : "default"} className="text-[10px] mt-1">{supplier.balanceType}</Badge>
           </CardContent>
         </Card>
       </div>

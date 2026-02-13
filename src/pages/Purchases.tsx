@@ -44,6 +44,7 @@ const Purchases = () => {
   // Add item dialog
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState("");
+  const [selectedVariation, setSelectedVariation] = useState("");
   const [itemQty, setItemQty] = useState(1);
   const [itemUnit, setItemUnit] = useState<"box" | "new" | "used">("new");
   const [itemCost, setItemCost] = useState(0);
@@ -88,6 +89,7 @@ const Purchases = () => {
     const p = products.find(pr => pr.localId === productLocalId);
     if (p) {
       setSelectedProduct(productLocalId);
+      setSelectedVariation("");
       setItemCost(p.costPrice);
       setItemSale(p.salePrice);
       setItemIMEIs([""]);
@@ -95,7 +97,17 @@ const Purchases = () => {
     }
   };
 
-  // Update IMEI array size when qty changes
+  const handleVariationSelect = (varIdx: string) => {
+    setSelectedVariation(varIdx);
+    if (selectedProductData?.variations) {
+      const v = selectedProductData.variations[Number(varIdx)];
+      if (v) {
+        setItemCost(v.costPrice);
+        setItemSale(v.salePrice);
+      }
+    }
+  };
+
   const handleQtyChange = (qty: number) => {
     setItemQty(qty);
     if (selectedProductData?.isMobile) {
@@ -110,7 +122,6 @@ const Purchases = () => {
     setItemIMEIs(updated);
   };
 
-  // Scanner: auto-fill next empty IMEI field and move focus
   const handleScanInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -132,10 +143,9 @@ const Purchases = () => {
     if (!p) return;
     const imeis = p.isMobile ? itemIMEIs.filter(Boolean) : [];
     if (p.isMobile && imeis.length !== itemQty) {
-      toast({ title: "IMEI Required", description: `Enter exactly ${itemQty} IMEI numbers for mobile products.`, variant: "destructive" });
+      toast({ title: "IMEI Required", description: `Enter exactly ${itemQty} IMEI numbers.`, variant: "destructive" });
       return;
     }
-    // Check for duplicate IMEIs
     if (p.isMobile) {
       const uniqueIMEIs = new Set(imeis);
       if (uniqueIMEIs.size !== imeis.length) {
@@ -150,13 +160,24 @@ const Purchases = () => {
         }
       }
     }
+
+    // Get variation details
+    let variationStorage = "";
+    let variationColor = "";
+    if (p.isMobile && selectedVariation !== "" && p.variations?.[Number(selectedVariation)]) {
+      const v = p.variations[Number(selectedVariation)];
+      variationStorage = v.storage;
+      variationColor = v.color;
+    }
+
     setItems(prev => [...prev, {
       productLocalId: p.localId, productName: p.productName,
       quantity: itemQty, unitType: itemUnit, costPrice: itemCost, salePrice: itemSale,
       total: itemCost * itemQty, imeiNumbers: imeis,
+      variationStorage, variationColor,
     }]);
     setAddItemOpen(false);
-    setSelectedProduct(""); setItemQty(1); setItemCost(0); setItemSale(0); setItemIMEIs([""]); setImeiMode("manual");
+    setSelectedProduct(""); setSelectedVariation(""); setItemQty(1); setItemCost(0); setItemSale(0); setItemIMEIs([""]); setImeiMode("manual");
   };
 
   const totalAmount = items.reduce((s, i) => s + i.total, 0);
@@ -176,10 +197,8 @@ const Purchases = () => {
         supplierLocalId: supplier.localId, supplierName: supplier.name, supplierId: supplier.id,
         items, totalAmount, paidAmount, paymentStatus: payStatus, purchaseDate,
       });
-      // Recalculate supplier balance after purchase
       await recalculateBalanceLocal(supplier.localId);
       await load();
-      // Show print option
       const savedPurchase: Purchase = {
         id: "", localId, supplierLocalId: supplier.localId, supplierName: supplier.name,
         supplierId: supplier.id, items: [...items], totalAmount, paidAmount,
@@ -264,8 +283,8 @@ const Purchases = () => {
           <CardContent className="flex items-center gap-4 p-5">
             <div className="rounded-lg bg-destructive/10 p-3"><AlertCircle className="h-5 w-5 text-destructive" /></div>
             <div>
-              <p className="text-sm text-muted-foreground">Pending</p>
-              <p className="text-2xl font-bold text-foreground">{loading ? "—" : purchases.filter(p => p.paymentStatus !== "paid").length}</p>
+              <p className="text-sm text-muted-foreground">Total Pending</p>
+              <p className="text-2xl font-bold text-destructive">Rs. {loading ? "—" : purchases.reduce((s, p) => s + (p.totalAmount - p.paidAmount), 0).toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
@@ -363,7 +382,6 @@ const Purchases = () => {
                   <Input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
                 </div>
               </div>
-              {/* Supplier balance info */}
               {selectedSupplierData && (
                 <div className="rounded-lg border bg-muted/50 p-3 flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Current Balance</span>
@@ -394,11 +412,11 @@ const Purchases = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
+                      <TableHead>Variation</TableHead>
                       <TableHead>Qty</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead className="text-right">Cost</TableHead>
                       <TableHead className="text-right">Sale</TableHead>
-                      <TableHead className="text-right">Margin</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -414,13 +432,15 @@ const Purchases = () => {
                             )}
                           </div>
                         </TableCell>
+                        <TableCell>
+                          {item.variationStorage || item.variationColor ? (
+                            <span className="text-xs">{item.variationStorage} / {item.variationColor}</span>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell><Badge variant="outline" className="text-xs">{item.unitType}</Badge></TableCell>
                         <TableCell className="text-right font-mono">Rs. {item.costPrice.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono">Rs. {item.salePrice.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-mono text-primary">
-                          Rs. {((item.salePrice - item.costPrice) * item.quantity).toLocaleString()}
-                        </TableCell>
                         <TableCell className="text-right font-mono font-bold">Rs. {item.total.toLocaleString()}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" onClick={() => setItems(items.filter((_, i) => i !== idx))}>
@@ -456,7 +476,6 @@ const Purchases = () => {
                   <Label>Paid Amount</Label>
                   <Input type="number" placeholder="0" value={paidAmount || ""} onChange={e => setPaidAmount(Number(e.target.value))} />
                 </div>
-                {/* Pending balance indicator */}
                 {paidAmount < totalAmount && (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -502,6 +521,23 @@ const Purchases = () => {
               </Select>
             </div>
 
+            {/* Variation selector for mobiles */}
+            {selectedProductData?.isMobile && selectedProductData.variations && selectedProductData.variations.length > 0 && (
+              <div className="space-y-2">
+                <Label>Select Variation *</Label>
+                <Select value={selectedVariation} onValueChange={handleVariationSelect}>
+                  <SelectTrigger><SelectValue placeholder="Select storage / color" /></SelectTrigger>
+                  <SelectContent>
+                    {selectedProductData.variations.map((v, idx) => (
+                      <SelectItem key={idx} value={String(idx)}>
+                        {v.storage} / {v.color} — Cost: Rs.{v.costPrice.toLocaleString()} | Sale: Rs.{v.salePrice.toLocaleString()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Mobile product details */}
             {selectedProductData?.isMobile && (
               <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
@@ -517,14 +553,18 @@ const Purchases = () => {
                     <Label className="text-xs text-muted-foreground">Model</Label>
                     <p className="text-sm font-medium">{selectedProductData.model || "—"}</p>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Storage</Label>
-                    <p className="text-sm font-medium">{selectedProductData.storage || "—"}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Color</Label>
-                    <p className="text-sm font-medium">{selectedProductData.color || "—"}</p>
-                  </div>
+                  {selectedVariation !== "" && selectedProductData.variations?.[Number(selectedVariation)] && (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Storage</Label>
+                        <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].storage}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Color</Label>
+                        <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].color}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
                   <Badge variant="outline" className="text-xs">Stock: {selectedProductData.currentStock}</Badge>
@@ -582,16 +622,9 @@ const Purchases = () => {
                     <ScanBarcode className="h-4 w-4" /> IMEI Numbers ({itemIMEIs.filter(Boolean).length}/{itemQty})
                   </Label>
                   <div className="flex gap-1">
-                    <Button
-                      type="button" size="sm" variant={imeiMode === "manual" ? "default" : "outline"}
-                      onClick={() => setImeiMode("manual")}
-                    >
-                      Manual
-                    </Button>
-                    <Button
-                      type="button" size="sm" variant={imeiMode === "scan" ? "default" : "outline"}
-                      onClick={() => { setImeiMode("scan"); setTimeout(() => scanInputRef.current?.focus(), 100); }}
-                    >
+                    <Button type="button" size="sm" variant={imeiMode === "manual" ? "default" : "outline"} onClick={() => setImeiMode("manual")}>Manual</Button>
+                    <Button type="button" size="sm" variant={imeiMode === "scan" ? "default" : "outline"}
+                      onClick={() => { setImeiMode("scan"); setTimeout(() => scanInputRef.current?.focus(), 100); }}>
                       <ScanBarcode className="h-3 w-3 mr-1" /> Scan
                     </Button>
                   </div>
@@ -600,27 +633,16 @@ const Purchases = () => {
                 {imeiMode === "scan" && (
                   <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
                     <p className="text-xs text-muted-foreground">Scan barcode or type IMEI and press Enter</p>
-                    <Input
-                      ref={scanInputRef}
-                      placeholder="Scan or type IMEI here..."
-                      onKeyDown={handleScanInput}
-                      autoFocus
-                    />
+                    <Input ref={scanInputRef} placeholder="Scan or type IMEI here..." onKeyDown={handleScanInput} autoFocus />
                   </div>
                 )}
 
-                {/* Individual IMEI fields */}
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {itemIMEIs.map((imei, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground w-6 text-right">{idx + 1}.</span>
-                      <Input
-                        placeholder={`IMEI #${idx + 1}`}
-                        value={imei}
-                        onChange={e => handleIMEIChange(idx, e.target.value)}
-                        className={imei ? "border-primary/50" : ""}
-                        disabled={imeiMode === "scan"}
-                      />
+                      <Input placeholder={`IMEI #${idx + 1}`} value={imei} onChange={e => handleIMEIChange(idx, e.target.value)}
+                        className={imei ? "border-primary/50" : ""} disabled={imeiMode === "scan"} />
                       {imei && <Badge variant="outline" className="text-xs shrink-0 text-primary">✓</Badge>}
                     </div>
                   ))}
@@ -628,7 +650,6 @@ const Purchases = () => {
               </div>
             )}
 
-            {/* Total */}
             <div className="rounded-lg bg-muted p-3 flex justify-between items-center">
               <span className="font-medium">Item Total</span>
               <span className="text-lg font-bold">Rs. {(itemCost * itemQty).toLocaleString()}</span>
@@ -685,6 +706,9 @@ const Purchases = () => {
                     <TableRow key={idx}>
                       <TableCell>
                         <p className="font-medium">{item.productName}</p>
+                        {(item.variationStorage || item.variationColor) && (
+                          <p className="text-xs text-primary">{item.variationStorage} / {item.variationColor}</p>
+                        )}
                         {item.imeiNumbers.length > 0 && (
                           <div className="mt-1 space-y-0.5">
                             {item.imeiNumbers.map((imei, i) => (
@@ -722,9 +746,7 @@ const Purchases = () => {
               <div className="space-y-2">
                 <Label>Return IMEI Numbers (one per line)</Label>
                 <Textarea value={returnIMEIs} onChange={e => setReturnIMEIs(e.target.value)} rows={3} />
-                <p className="text-xs text-muted-foreground">
-                  Available: {returnItem?.imeiNumbers.join(", ")}
-                </p>
+                <p className="text-xs text-muted-foreground">Available: {returnItem?.imeiNumbers.join(", ")}</p>
               </div>
             )}
             <div className="space-y-2">
