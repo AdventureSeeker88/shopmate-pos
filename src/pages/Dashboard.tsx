@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   ShoppingCart, Package, CreditCard, TrendingUp, TrendingDown,
   DollarSign, AlertTriangle, ArrowUpRight, ArrowDownRight, Wifi, WifiOff,
+  Search, ScanBarcode, X,
 } from "lucide-react";
 import { getAllSales, Sale } from "@/lib/offlineSaleService";
 import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
@@ -21,6 +24,10 @@ const Dashboard = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [online, setOnline] = useState(navigator.onLine);
+  const [imeiQuery, setImeiQuery] = useState("");
+  const [imeiResults, setImeiResults] = useState<{ type: "sale" | "purchase"; record: Sale | Purchase; item: any; imei: string }[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     const [s, p, e, pr] = await Promise.all([
@@ -84,6 +91,47 @@ const Dashboard = () => {
 
   const recentSales = [...sales].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
+  // IMEI Search
+  const searchIMEI = (q: string) => {
+    if (!q.trim()) { setImeiResults([]); return; }
+    const lower = q.toLowerCase();
+    const results: typeof imeiResults = [];
+
+    sales.forEach(s => {
+      s.items.forEach(item => {
+        item.imeiNumbers?.forEach(imei => {
+          if (imei.toLowerCase().includes(lower)) {
+            results.push({ type: "sale", record: s, item, imei });
+          }
+        });
+      });
+    });
+
+    purchases.forEach(p => {
+      p.items.forEach(item => {
+        item.imeiNumbers?.forEach(imei => {
+          if (imei.toLowerCase().includes(lower)) {
+            results.push({ type: "purchase", record: p, item, imei });
+          }
+        });
+      });
+    });
+
+    setImeiResults(results);
+  };
+
+  const handleScanToggle = () => {
+    setScanning(!scanning);
+    if (!scanning) {
+      setTimeout(() => scanInputRef.current?.focus(), 100);
+    }
+  };
+
+  const handleScanInput = (val: string) => {
+    setImeiQuery(val);
+    searchIMEI(val);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -97,6 +145,76 @@ const Dashboard = () => {
           {online ? "Online" : "Offline"}
         </Badge>
       </div>
+
+      {/* IMEI Search */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Search className="h-4 w-4" /> IMEI Search & History
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                ref={scanInputRef}
+                placeholder={scanning ? "Scan barcode now..." : "Search IMEI number..."}
+                value={imeiQuery}
+                onChange={(e) => handleScanInput(e.target.value)}
+                className={`pl-9 ${scanning ? "border-primary ring-2 ring-primary/20" : ""}`}
+                onKeyDown={(e) => { if (e.key === "Enter") searchIMEI(imeiQuery); }}
+              />
+              {imeiQuery && (
+                <button onClick={() => { setImeiQuery(""); setImeiResults([]); }} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
+            </div>
+            <Button variant={scanning ? "default" : "outline"} size="icon" onClick={handleScanToggle} title="Toggle barcode scan mode">
+              <ScanBarcode className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {scanning && (
+            <p className="text-xs text-primary animate-pulse">📡 Scan mode active — scan a barcode or type IMEI digits</p>
+          )}
+
+          {imeiResults.length > 0 && (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              <p className="text-xs text-muted-foreground font-medium">{imeiResults.length} result(s) found</p>
+              {imeiResults.map((r, i) => {
+                const isSale = r.type === "sale";
+                const rec = r.record as any;
+                return (
+                  <div key={i} className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={isSale ? "default" : "secondary"} className="text-xs">{isSale ? "SALE" : "PURCHASE"}</Badge>
+                        <span className="font-mono text-sm font-medium">{r.imei}</span>
+                      </div>
+                      <p className="text-sm">{r.item.productName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {isSale ? `Customer: ${rec.customerName || "Walk-in"}` : `Supplier: ${rec.supplierName}`}
+                        {" • "}
+                        {format(new Date(isSale ? rec.saleDate : rec.purchaseDate), "dd MMM yyyy")}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-sm">₨ {r.item.total?.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">{rec.invoiceNumber || rec.localId?.slice(0, 8)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {imeiQuery && imeiResults.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">No records found for "{imeiQuery}"</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Key Metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
