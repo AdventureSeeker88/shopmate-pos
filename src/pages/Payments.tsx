@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Wallet, Banknote, CreditCard, Calendar, TrendingUp } from "lucide-react";
+import { Wallet, Banknote, CreditCard, Calendar, TrendingUp, Wifi, WifiOff } from "lucide-react";
 import { getAllSales, Sale } from "@/lib/offlineSaleService";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 
@@ -15,6 +15,7 @@ type Period = "daily" | "weekly" | "monthly";
 const Payments = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(navigator.onLine);
   const [period, setPeriod] = useState<Period>("daily");
   const [methodFilter, setMethodFilter] = useState<PaymentMethod | "all">("all");
 
@@ -23,7 +24,14 @@ const Payments = () => {
     try { setSales(await getAllSales()); } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const on = () => { setOnline(true); load(); };
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, [load]);
 
   const now = new Date();
   const getRange = (p: Period) => {
@@ -61,7 +69,13 @@ const Payments = () => {
           <h1 className="text-2xl font-bold text-foreground">Payments</h1>
           <p className="text-sm text-muted-foreground">Track received payments by method & period</p>
         </div>
-        <Badge variant="outline" className="gap-1"><Calendar className="h-3 w-3" /> {format(now, "dd MMM yyyy")}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={online ? "default" : "destructive"} className="gap-1 text-xs">
+            {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {online ? "Online" : "Offline"}
+          </Badge>
+          <Badge variant="outline" className="gap-1"><Calendar className="h-3 w-3" /> {format(now, "dd MMM yyyy")}</Badge>
+        </div>
       </div>
 
       {/* Period Tabs */}

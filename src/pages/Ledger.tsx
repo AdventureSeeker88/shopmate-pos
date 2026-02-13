@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Search, Users, Truck, ArrowUpRight, ArrowDownRight, BookOpen } from "lucide-react";
+import { Search, Users, Truck, ArrowUpRight, ArrowDownRight, BookOpen, Wifi, WifiOff } from "lucide-react";
 import { getAllCustomers, getCustomerLedger, Customer, CustomerLedgerEntry } from "@/lib/offlineCustomerService";
 import { getAllSuppliers, getSupplierLedger, Supplier, SupplierLedgerEntry } from "@/lib/offlineSupplierService";
 import { format, isToday } from "date-fns";
@@ -16,6 +16,7 @@ const Ledger = () => {
   const [custLedgers, setCustLedgers] = useState<Record<string, CustomerLedgerEntry[]>>({});
   const [suppLedgers, setSuppLedgers] = useState<Record<string, SupplierLedgerEntry[]>>({});
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(navigator.onLine);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("customers");
 
@@ -26,7 +27,6 @@ const Ledger = () => {
       setCustomers(custs);
       setSuppliers(supps);
 
-      // Load all ledgers
       const cl: Record<string, CustomerLedgerEntry[]> = {};
       for (const c of custs) { cl[c.localId] = await getCustomerLedger(c.localId); }
       setCustLedgers(cl);
@@ -37,7 +37,14 @@ const Ledger = () => {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const on = () => { setOnline(true); load(); };
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, [load]);
 
   const q = search.toLowerCase();
   const filteredCustomers = customers.filter(c => c.status === "active" && (!q || c.name.toLowerCase().includes(q) || c.phone.includes(q)));
@@ -53,7 +60,13 @@ const Ledger = () => {
           <h1 className="text-2xl font-bold text-foreground">Ledger</h1>
           <p className="text-sm text-muted-foreground">Customer & Supplier transaction history</p>
         </div>
-        <Badge variant="outline" className="gap-1"><BookOpen className="h-3 w-3" /> {format(new Date(), "dd MMM yyyy")}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={online ? "default" : "destructive"} className="gap-1 text-xs">
+            {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {online ? "Online" : "Offline"}
+          </Badge>
+          <Badge variant="outline" className="gap-1"><BookOpen className="h-3 w-3" /> {format(new Date(), "dd MMM yyyy")}</Badge>
+        </div>
       </div>
 
       {/* Summary */}
