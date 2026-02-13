@@ -196,6 +196,34 @@ export const recalculateCustomerBalance = async (customerLocalId: string) => {
   await db.put("customers", updated);
 };
 
+// Customer Payment
+export const addCustomerPayment = async (payment: {
+  customerLocalId: string; amount: number;
+  method: "cash" | "bank" | "wallet"; date: string; note: string;
+}) => {
+  const db = await getDB();
+  const customer = await db.get("customers", payment.customerLocalId);
+  if (!customer) throw new Error("Customer not found");
+
+  const localId = generateLocalId();
+  const entry: CustomerLedgerEntry = {
+    id: "", localId, customerId: customer.id,
+    customerLocalId: payment.customerLocalId,
+    date: payment.date, type: "payment",
+    description: `Payment via ${payment.method}${payment.note ? " - " + payment.note : ""}`,
+    amount: payment.amount, createdAt: new Date().toISOString(), syncStatus: "pending",
+  };
+  if (isOnline() && customer.id) {
+    try {
+      entry.id = await saveLedgerToFirebase(entry, customer.id);
+      entry.syncStatus = "synced";
+    } catch (e) { console.warn(e); }
+  }
+  await db.put("customerLedger", entry);
+  await recalculateCustomerBalance(payment.customerLocalId);
+  return localId;
+};
+
 // Sync
 export const syncCustomers = async () => {
   if (!isOnline()) return;
