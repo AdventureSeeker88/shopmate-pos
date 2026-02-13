@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, Package, Tags, Users, Truck, ShoppingCart,
   CreditCard, FileText, Receipt, BarChart3, BookOpen, CalendarDays,
-  Printer, Settings, LogOut,
+  Printer, Settings, LogOut, PieChart,
 } from "lucide-react";
 
 const navItems = [
@@ -22,6 +22,7 @@ const navItems = [
   { to: "/ledger", label: "Ledger", icon: BookOpen },
   { to: "/daybook", label: "Day Book", icon: CalendarDays },
   { to: "/price-list", label: "Price List", icon: Printer },
+  { to: "/reports", label: "Reports", icon: PieChart },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
