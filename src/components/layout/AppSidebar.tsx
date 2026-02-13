@@ -6,6 +6,7 @@ import {
   CreditCard, FileText, Receipt, BarChart3, BookOpen, CalendarDays,
   Printer, Settings, LogOut, PieChart,
 } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -31,9 +32,9 @@ const AppSidebar = () => {
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
-        <ShoppingCart className="h-6 w-6 text-sidebar-primary" />
-        <span className="text-lg font-bold text-sidebar-primary">Mobile Shop</span>
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+        <img src={logo} alt="Saim Mobile" className="h-10 w-10 rounded-full object-cover" />
+        <span className="text-lg font-bold text-sidebar-primary">Saim Mobile</span>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
         {navItems.map((item) => (
