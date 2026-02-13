@@ -204,7 +204,9 @@ export const checkIMEIExists = async (imei: string): Promise<boolean> => {
 export const searchIMEIByPartial = async (partial: string): Promise<(IMEIRecord & { product?: Product })[]> => {
   const db = await getDB();
   const allIMEIs = await db.getAll("imeiRecords");
-  const matches = allIMEIs.filter(r => r.status === "in_stock" && r.imei.endsWith(partial));
+  const lowerPartial = partial.toLowerCase();
+  const matches = allIMEIs.filter(r => r.status === "in_stock" && 
+    (r.imei.endsWith(partial) || r.imei.includes(lowerPartial) || r.imei.toLowerCase().includes(lowerPartial)));
   const results: (IMEIRecord & { product?: Product })[] = [];
   for (const r of matches) {
     const product = await db.get("products", r.productLocalId);
