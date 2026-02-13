@@ -201,6 +201,18 @@ export const checkIMEIExists = async (imei: string): Promise<boolean> => {
   return records.some(r => r.status === "in_stock");
 };
 
+export const searchIMEIByPartial = async (partial: string): Promise<(IMEIRecord & { product?: Product })[]> => {
+  const db = await getDB();
+  const allIMEIs = await db.getAll("imeiRecords");
+  const matches = allIMEIs.filter(r => r.status === "in_stock" && r.imei.endsWith(partial));
+  const results: (IMEIRecord & { product?: Product })[] = [];
+  for (const r of matches) {
+    const product = await db.get("products", r.productLocalId);
+    results.push({ ...r, product });
+  }
+  return results;
+};
+
 export const syncProducts = async () => {
   if (!isOnline()) return;
   const db = await getDB();
