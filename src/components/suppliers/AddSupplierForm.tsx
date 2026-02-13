@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { UserPlus, Save } from "lucide-react";
 import { addSupplierOffline, updateSupplierOffline, Supplier } from "@/lib/offlineSupplierService";
 import { useToast } from "@/hooks/use-toast";
 
@@ -72,33 +73,44 @@ const AddSupplierForm = ({ editSupplier, onSaved, onCancel }: Props) => {
   };
 
   return (
-    <Card className="max-w-lg">
-      <CardHeader>
-        <CardTitle>{editSupplier ? "Edit Supplier" : "Add New Supplier"}</CardTitle>
+    <Card className="max-w-lg border-border/60 shadow-sm">
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-primary/10 p-2.5">
+            <UserPlus className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <CardTitle className="text-lg">{editSupplier ? "Edit Supplier" : "Add New Supplier"}</CardTitle>
+            <CardDescription>{editSupplier ? "Update supplier details" : "Enter supplier information below"}</CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Name *</Label>
-            <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Supplier name" maxLength={100} />
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-sm font-medium">Name <span className="text-destructive">*</span></Label>
+              <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Supplier name" maxLength={100} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone" className="text-sm font-medium">Phone <span className="text-destructive">*</span></Label>
+              <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="03XX-XXXXXXX" maxLength={20} />
+            </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone Number *</Label>
-            <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="03XX-XXXXXXX" maxLength={20} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="address">Address</Label>
+            <Label htmlFor="address" className="text-sm font-medium">Address</Label>
             <Input id="address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address (optional)" maxLength={200} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cnic">CNIC / ID Card</Label>
+            <Label htmlFor="cnic" className="text-sm font-medium">CNIC / ID Card</Label>
             <Input id="cnic" value={form.cnic} onChange={(e) => setForm({ ...form, cnic: e.target.value })} placeholder="XXXXX-XXXXXXX-X (optional)" maxLength={20} />
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             {onCancel && (
               <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
             )}
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} className="gap-2">
+              <Save className="h-4 w-4" />
               {loading ? "Saving..." : editSupplier ? "Update Supplier" : "Add Supplier"}
             </Button>
           </div>

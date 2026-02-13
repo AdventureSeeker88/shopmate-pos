@@ -193,8 +193,43 @@ export const deleteSupplierOffline = async (localId: string) => {
   for (const l of ledgerEntries) await db.delete("supplierLedger", l.localId);
 };
 
+export const pullSuppliersFromFirebase = async () => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    const snap = await getDocs(query(collection(firestore, "suppliers"), orderBy("createdAt", "desc")));
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      const existing = await db.getAll("suppliers");
+      const match = existing.find((s) => s.id === docSnap.id);
+      if (!match) {
+        const localId = generateLocalId();
+        const supplier: Supplier = {
+          id: docSnap.id,
+          localId,
+          name: data.name || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          cnic: data.cnic || "",
+          openingBalance: data.openingBalance || 0,
+          balanceType: data.balanceType || "payable",
+          currentBalance: data.currentBalance || 0,
+          createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          syncStatus: "synced",
+        };
+        await db.put("suppliers", supplier);
+        console.log("📥 Pulled supplier from Firebase:", supplier.name);
+      }
+    }
+  } catch (e) {
+    console.warn("⚠️ Failed to pull suppliers from Firebase:", e);
+  }
+};
+
 export const getAllSuppliers = async (): Promise<Supplier[]> => {
   const db = await getDB();
+  // Pull from Firebase first if online to ensure cross-browser data
+  await pullSuppliersFromFirebase();
   const all = await db.getAll("suppliers");
   return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
