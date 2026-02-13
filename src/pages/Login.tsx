@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShoppingCart } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import logo from "@/assets/logo.png";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -37,10 +37,8 @@ const Login = () => {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary">
-            <ShoppingCart className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <CardTitle className="text-2xl">Mobile Shop Manager</CardTitle>
+          <img src={logo} alt="Saim Mobile" className="mx-auto mb-2 h-20 w-20 rounded-full object-cover" />
+          <CardTitle className="text-2xl">Saim Mobile</CardTitle>
           <CardDescription>Sign in to manage your shop</CardDescription>
         </CardHeader>
         <CardContent>
