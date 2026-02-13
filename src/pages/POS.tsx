@@ -89,7 +89,13 @@ const POS = () => {
 
   // Filter products by category and search
   const filteredProducts = products.filter(p => {
-    if (selectedCategory !== "all" && p.categoryId !== selectedCategory) return false;
+    if (selectedCategory !== "all") {
+      const selectedCat = categories.find(c => c.localId === selectedCategory);
+      const matchById = p.categoryId === selectedCategory;
+      const matchByName = selectedCat && p.categoryName && 
+        p.categoryName.toLowerCase() === selectedCat.categoryName.toLowerCase();
+      if (!matchById && !matchByName) return false;
+    }
     if (searchQuery && !p.productName.toLowerCase().includes(searchQuery.toLowerCase()) &&
         !p.brand?.toLowerCase().includes(searchQuery.toLowerCase()) &&
         !p.model?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -311,8 +317,18 @@ const POS = () => {
   };
 
   // Group products by category for display
-  const getCategoryProducts = (catId: string) => filteredProducts.filter(p => p.categoryId === catId);
-  const uncategorized = filteredProducts.filter(p => !p.categoryId || !categories.find(c => c.localId === p.categoryId));
+  const getCategoryProducts = (catId: string) => {
+    const cat = categories.find(c => c.localId === catId);
+    return filteredProducts.filter(p => 
+      p.categoryId === catId || 
+      (cat && p.categoryName && p.categoryName.toLowerCase() === cat.categoryName.toLowerCase())
+    );
+  };
+  const uncategorized = filteredProducts.filter(p => {
+    if (!p.categoryId && !p.categoryName) return true;
+    return !categories.find(c => c.localId === p.categoryId || 
+      (p.categoryName && c.categoryName.toLowerCase() === p.categoryName.toLowerCase()));
+  });
 
   return (
     <div className="h-[calc(100vh-80px)] flex flex-col gap-2">
@@ -335,7 +351,11 @@ const POS = () => {
             <Package className="h-3 w-3 mr-1" /> All
           </Button>
           {categories.map(c => {
-            const count = products.filter(p => p.categoryId === c.localId && p.currentStock > 0).length;
+            const count = products.filter(p => 
+              (p.categoryId === c.localId || 
+               (p.categoryName && p.categoryName.toLowerCase() === c.categoryName.toLowerCase())) 
+              && p.currentStock > 0
+            ).length;
             return (
               <Button key={c.localId} size="sm"
                 variant={selectedCategory === c.localId ? "default" : "outline"}
