@@ -5,6 +5,13 @@ import {
 } from "firebase/firestore";
 import { db as firestore } from "@/lib/firebase";
 
+export interface ProductVariation {
+  storage: string;
+  color: string;
+  costPrice: number;
+  salePrice: number;
+}
+
 export interface Product {
   id: string;
   localId: string;
@@ -22,6 +29,7 @@ export interface Product {
   storage: string;
   color: string;
   imeiTracking: boolean;
+  variations: ProductVariation[];
   createdAt: string;
   syncStatus: "pending" | "synced";
 }
@@ -138,6 +146,7 @@ const pullFromFirebase = async () => {
           storage: d.storage || "", color: d.color || "", imeiTracking: d.imeiTracking || false,
           createdAt: d.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           syncStatus: "synced",
+          variations: d.variations || [],
         });
       }
     }

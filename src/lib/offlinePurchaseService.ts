@@ -15,6 +15,9 @@ export interface PurchaseItem {
   salePrice: number;
   total: number;
   imeiNumbers: string[];
+  // Variation details
+  variationStorage?: string;
+  variationColor?: string;
 }
 
 export interface Purchase {

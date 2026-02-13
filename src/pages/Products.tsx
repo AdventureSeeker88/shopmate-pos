@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import {
   getAllProducts, addProduct, updateProduct, deleteProduct,
-  startProductAutoSync, Product,
+  startProductAutoSync, Product, ProductVariation,
 } from "@/lib/offlineProductService";
 import { getAllCategories, Category } from "@/lib/offlineCategoryService";
 
@@ -24,8 +24,10 @@ const MOBILE_CATEGORY = "mobile";
 const emptyForm = {
   productName: "", categoryId: "", categoryName: "", costPrice: 0, salePrice: 0,
   currentStock: 0, stockAlertQty: 5, isMobile: false, brand: "", model: "",
-  storage: "", color: "", imeiTracking: false,
+  storage: "", color: "", imeiTracking: false, variations: [] as ProductVariation[],
 };
+
+const emptyVariation: ProductVariation = { storage: "", color: "", costPrice: 0, salePrice: 0 };
 
 const Products = () => {
   const { toast } = useToast();
@@ -61,7 +63,11 @@ const Products = () => {
   const handleCategoryChange = (catLocalId: string) => {
     const cat = categories.find(c => c.localId === catLocalId);
     const isMobile = cat?.categoryName.toLowerCase() === MOBILE_CATEGORY;
-    setForm(f => ({ ...f, categoryId: catLocalId, categoryName: cat?.categoryName || "", isMobile, imeiTracking: isMobile }));
+    setForm(f => ({
+      ...f, categoryId: catLocalId, categoryName: cat?.categoryName || "",
+      isMobile, imeiTracking: isMobile,
+      variations: isMobile && f.variations.length === 0 ? [{ ...emptyVariation }] : f.variations,
+    }));
   };
 
   const handleSave = async () => {
@@ -94,6 +100,7 @@ const Products = () => {
       costPrice: p.costPrice, salePrice: p.salePrice, currentStock: p.currentStock,
       stockAlertQty: p.stockAlertQty, isMobile: p.isMobile, brand: p.brand,
       model: p.model, storage: p.storage, color: p.color, imeiTracking: p.imeiTracking,
+      variations: p.variations || [],
     });
     setTab("add");
   };
@@ -104,6 +111,14 @@ const Products = () => {
     setDeleteConfirm(null);
     await load();
     toast({ title: "Product Deleted" });
+  };
+
+  const addVariation = () => setForm(f => ({ ...f, variations: [...f.variations, { ...emptyVariation }] }));
+  const removeVariation = (idx: number) => setForm(f => ({ ...f, variations: f.variations.filter((_, i) => i !== idx) }));
+  const updateVariation = (idx: number, field: keyof ProductVariation, value: string | number) => {
+    setForm(f => ({
+      ...f, variations: f.variations.map((v, i) => i === idx ? { ...v, [field]: value } : v),
+    }));
   };
 
   const lowStockProducts = products.filter(p => p.currentStock <= p.stockAlertQty);
@@ -179,6 +194,7 @@ const Products = () => {
                       <TableRow>
                         <TableHead>Product</TableHead>
                         <TableHead>Category</TableHead>
+                        <TableHead>Variations</TableHead>
                         <TableHead className="text-right">Cost</TableHead>
                         <TableHead className="text-right">Sale</TableHead>
                         <TableHead className="text-center">Stock</TableHead>
@@ -192,10 +208,23 @@ const Products = () => {
                           <TableCell>
                             <div>
                               <p className="font-medium">{p.productName}</p>
-                              {p.isMobile && <p className="text-xs text-muted-foreground">{p.brand} {p.model} {p.storage}</p>}
+                              {p.isMobile && <p className="text-xs text-muted-foreground">{p.brand} {p.model}</p>}
                             </div>
                           </TableCell>
                           <TableCell><Badge variant="outline" className="text-xs">{p.categoryName}</Badge></TableCell>
+                          <TableCell>
+                            {p.variations && p.variations.length > 0 ? (
+                              <div className="space-y-0.5">
+                                {p.variations.map((v, i) => (
+                                  <p key={i} className="text-xs text-muted-foreground">
+                                    {v.storage} / {v.color} — Rs.{v.costPrice.toLocaleString()}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right font-mono">Rs. {p.costPrice.toLocaleString()}</TableCell>
                           <TableCell className="text-right font-mono">Rs. {p.salePrice.toLocaleString()}</TableCell>
                           <TableCell className="text-center">
@@ -243,11 +272,11 @@ const Products = () => {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Cost Price</Label>
+                  <Label>Default Cost Price</Label>
                   <Input type="number" placeholder="0" value={form.costPrice || ""} onChange={e => setForm(f => ({ ...f, costPrice: Number(e.target.value) }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sale Price</Label>
+                  <Label>Default Sale Price</Label>
                   <Input type="number" placeholder="0" value={form.salePrice || ""} onChange={e => setForm(f => ({ ...f, salePrice: Number(e.target.value) }))} />
                 </div>
                 <div className="space-y-2">
@@ -264,22 +293,56 @@ const Products = () => {
               {form.isMobile && (
                 <Card className="border-primary/20 bg-primary/5">
                   <CardHeader className="pb-2"><CardTitle className="text-sm text-primary">📱 Mobile Details</CardTitle></CardHeader>
-                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Brand</Label>
-                      <Input placeholder="Samsung, Apple..." value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} />
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Brand</Label>
+                        <Input placeholder="Samsung, Apple..." value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Model</Label>
+                        <Input placeholder="A32, iPhone 12..." value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Model</Label>
-                      <Input placeholder="A32, iPhone 12..." value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Storage</Label>
-                      <Input placeholder="4/64, 6/128..." value={form.storage} onChange={e => setForm(f => ({ ...f, storage: e.target.value }))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Color</Label>
-                      <Input placeholder="Black, Blue..." value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} />
+
+                    {/* Variations */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-semibold">📦 Variations (Storage / Color / Price)</Label>
+                        <Button type="button" size="sm" variant="outline" onClick={addVariation}>
+                          <Plus className="h-3 w-3 mr-1" /> Add Variation
+                        </Button>
+                      </div>
+                      {form.variations.map((v, idx) => (
+                        <div key={idx} className="rounded-lg border bg-background p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">Variation #{idx + 1}</span>
+                            {form.variations.length > 1 && (
+                              <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeVariation(idx)}>
+                                <Trash2 className="h-3 w-3 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Storage</Label>
+                              <Input placeholder="4/64, 6/128..." value={v.storage} onChange={e => updateVariation(idx, "storage", e.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Color</Label>
+                              <Input placeholder="Black, Blue..." value={v.color} onChange={e => updateVariation(idx, "color", e.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Cost Price</Label>
+                              <Input type="number" placeholder="0" value={v.costPrice || ""} onChange={e => updateVariation(idx, "costPrice", Number(e.target.value))} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Sale Price</Label>
+                              <Input type="number" placeholder="0" value={v.salePrice || ""} onChange={e => updateVariation(idx, "salePrice", Number(e.target.value))} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>

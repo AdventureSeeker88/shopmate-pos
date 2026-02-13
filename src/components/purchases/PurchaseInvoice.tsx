@@ -38,9 +38,11 @@ const PurchaseInvoice = ({ open, onOpenChange, purchase }: Props) => {
         .text-right { text-align: right; }
         .mono { font-family: 'Courier New', monospace; }
         .imei { font-size: 10px; color: #777; }
+        .variation { font-size: 10px; color: #2563eb; font-weight: 600; }
         .summary { border-top: 2px solid #333; padding-top: 10px; }
         .summary-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
         .summary-row.total { font-size: 16px; font-weight: 800; border-top: 1px solid #999; padding-top: 8px; margin-top: 4px; }
+        .summary-row.pending { color: #dc2626; font-weight: 700; }
         .footer { text-align: center; margin-top: 24px; font-size: 11px; color: #888; border-top: 1px dashed #ccc; padding-top: 10px; }
         @media print { body { padding: 10px; } }
       </style></head><body>
@@ -104,6 +106,11 @@ const PurchaseInvoice = ({ open, onOpenChange, purchase }: Props) => {
                   <td>{idx + 1}</td>
                   <td>
                     {item.productName}
+                    {(item.variationStorage || item.variationColor) && (
+                      <div className="variation">
+                        {item.variationStorage} / {item.variationColor}
+                      </div>
+                    )}
                     {item.imeiNumbers.length > 0 && (
                       <div className="imei">
                         {item.imeiNumbers.map((imei, i) => (
@@ -133,14 +140,14 @@ const PurchaseInvoice = ({ open, onOpenChange, purchase }: Props) => {
               <span className="mono">Rs. {purchase.paidAmount.toLocaleString()}</span>
             </div>
             {pending > 0 && (
-              <div className="summary-row" style={{ color: "#dc2626" }}>
+              <div className="summary-row pending">
                 <span>Pending Amount:</span>
                 <span className="mono">Rs. {pending.toLocaleString()}</span>
               </div>
             )}
             <div className="summary-row total">
-              <span>Net Payable:</span>
-              <span className="mono">Rs. {purchase.totalAmount.toLocaleString()}</span>
+              <span>{pending > 0 ? "Pending Payable:" : "Net Payable:"}</span>
+              <span className="mono">Rs. {pending > 0 ? pending.toLocaleString() : purchase.totalAmount.toLocaleString()}</span>
             </div>
           </div>
 
