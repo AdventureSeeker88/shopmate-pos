@@ -22,6 +22,7 @@ import Ledger from "@/pages/Ledger";
 import DayBook from "@/pages/DayBook";
 import PriceList from "@/pages/PriceList";
 import SettingsPage from "@/pages/SettingsPage";
+import Reports from "@/pages/Reports";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ const App = () => (
               <Route path="/ledger" element={<Ledger />} />
               <Route path="/daybook" element={<DayBook />} />
               <Route path="/price-list" element={<PriceList />} />
+              <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
