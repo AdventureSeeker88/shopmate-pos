@@ -157,9 +157,23 @@ const pullFromFirebase = async () => {
   const db = await getDB();
   try {
     const snap = await getDocs(query(collection(firestore, "customers"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
     const existing = await db.getAll("customers");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("customers", local.localId);
+        // Also clean up related ledger entries
+        const ledger = await db.getAllFromIndex("customerLedger", "by-customer", local.localId);
+        for (const l of ledger) await db.delete("customerLedger", l.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("customers");
     for (const docSnap of snap.docs) {
-      const alreadyExists = existing.find(c => c.id === docSnap.id || (c.name === docSnap.data().name && c.phone === docSnap.data().phone));
+      const alreadyExists = remainingLocal.find(c => c.id === docSnap.id || (c.name === docSnap.data().name && c.phone === docSnap.data().phone));
       if (!alreadyExists) {
         const d = docSnap.data();
         await db.put("customers", {

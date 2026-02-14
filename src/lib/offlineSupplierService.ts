@@ -191,11 +191,26 @@ export const pullSuppliersFromFirebase = async () => {
   const db = await getDB();
   try {
     const snap = await getDocs(query(collection(firestore, "suppliers"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
+    const existing = await db.getAll("suppliers");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("suppliers", local.localId);
+        // Also clean up related payments and ledger
+        const payments = await db.getAllFromIndex("supplierPayments", "by-supplier", local.localId);
+        for (const p of payments) await db.delete("supplierPayments", p.localId);
+        const ledger = await db.getAllFromIndex("supplierLedger", "by-supplier", local.localId);
+        for (const l of ledger) await db.delete("supplierLedger", l.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("suppliers");
     for (const docSnap of snap.docs) {
-      const data = docSnap.data();
-      const existing = await db.getAll("suppliers");
-      const match = existing.find((s) => s.id === docSnap.id);
-      if (!match) {
+      if (!remainingLocal.find(s => s.id === docSnap.id)) {
+        const data = docSnap.data();
         const localId = generateLocalId();
         const supplier: Supplier = {
           id: docSnap.id, localId,
