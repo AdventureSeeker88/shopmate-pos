@@ -3,15 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import {
   ShoppingCart, Package, CreditCard, TrendingUp, TrendingDown,
   DollarSign, AlertTriangle, ArrowUpRight, ArrowDownRight, Wifi, WifiOff,
-  Search, ScanBarcode, X,
+  Search, ScanBarcode, X, Eye, User, Phone, MapPin, FileText,
 } from "lucide-react";
 import { getAllSales, Sale } from "@/lib/offlineSaleService";
 import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
 import { getAllExpenses, Expense } from "@/lib/offlineExpenseService";
 import { getAllProducts, Product } from "@/lib/offlineProductService";
+import { getAllCustomers, Customer } from "@/lib/offlineCustomerService";
 import { format, isToday, isThisWeek, isThisMonth, startOfDay } from "date-fns";
 import {
   ChartContainer, ChartTooltip, ChartTooltipContent,
@@ -23,17 +26,19 @@ const Dashboard = () => {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [online, setOnline] = useState(navigator.onLine);
   const [imeiQuery, setImeiQuery] = useState("");
   const [imeiResults, setImeiResults] = useState<{ type: "sale" | "purchase"; record: Sale | Purchase; item: any; imei: string }[]>([]);
+  const [selectedImeiResult, setSelectedImeiResult] = useState<{ type: "sale" | "purchase"; record: Sale | Purchase; item: any; imei: string } | null>(null);
   const [scanning, setScanning] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const [s, p, e, pr] = await Promise.all([
-      getAllSales(), getAllPurchases(), getAllExpenses(), getAllProducts(),
+    const [s, p, e, pr, cu] = await Promise.all([
+      getAllSales(), getAllPurchases(), getAllExpenses(), getAllProducts(), getAllCustomers(),
     ]);
-    setSales(s); setPurchases(p); setExpenses(e); setProducts(pr);
+    setSales(s); setPurchases(p); setExpenses(e); setProducts(pr); setCustomers(cu);
   };
 
   useEffect(() => {
@@ -186,23 +191,32 @@ const Dashboard = () => {
               {imeiResults.map((r, i) => {
                 const isSale = r.type === "sale";
                 const rec = r.record as any;
+                const cust = isSale ? customers.find(c => c.localId === rec.customerLocalId || c.id === rec.customerId) : null;
                 return (
-                  <div key={i} className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={isSale ? "default" : "secondary"} className="text-xs">{isSale ? "SALE" : "PURCHASE"}</Badge>
-                        <span className="font-mono text-sm font-medium">{r.imei}</span>
+                  <div key={i} className="rounded-lg border p-3 cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => setSelectedImeiResult(r)}>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={isSale ? "default" : "secondary"} className="text-xs">{isSale ? "SALE" : "PURCHASE"}</Badge>
+                          <span className="font-mono text-sm font-medium">{r.imei}</span>
+                        </div>
+                        <p className="text-sm font-medium">{r.item.productName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isSale ? `Customer: ${rec.customerName || "Walk-in"}` : `Supplier: ${rec.supplierName}`}
+                          {" • "}{format(new Date(isSale ? rec.saleDate : rec.purchaseDate), "dd MMM yyyy")}
+                          {" • "}{rec.invoiceNumber || "—"}
+                        </p>
+                        {cust && (
+                          <p className="text-xs text-muted-foreground">
+                            📱 {cust.phone} {cust.cnic ? `• CNIC: ${cust.cnic}` : ""} {cust.address ? `• ${cust.address}` : ""}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-sm">{r.item.productName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {isSale ? `Customer: ${rec.customerName || "Walk-in"}` : `Supplier: ${rec.supplierName}`}
-                        {" • "}
-                        {format(new Date(isSale ? rec.saleDate : rec.purchaseDate), "dd MMM yyyy")}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-sm">₨ {r.item.total?.toLocaleString()}</p>
-                      <p className="text-xs text-muted-foreground">{rec.invoiceNumber || rec.localId?.slice(0, 8)}</p>
+                      <div className="text-right shrink-0">
+                        <p className="font-semibold text-sm">₨ {r.item.total?.toLocaleString()}</p>
+                        <Eye className="h-3 w-3 text-muted-foreground ml-auto mt-1" />
+                      </div>
                     </div>
                   </div>
                 );
@@ -404,6 +418,129 @@ const Dashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* IMEI Detail Dialog */}
+      <Dialog open={!!selectedImeiResult} onOpenChange={open => { if (!open) setSelectedImeiResult(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" /> IMEI Detail
+            </DialogTitle>
+          </DialogHeader>
+          {selectedImeiResult && (() => {
+            const isSale = selectedImeiResult.type === "sale";
+            const rec = selectedImeiResult.record as any;
+            const cust = isSale ? customers.find(c => c.localId === rec.customerLocalId || c.id === rec.customerId) : null;
+            return (
+              <div className="space-y-4">
+                <div className="rounded-lg bg-muted/50 p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={isSale ? "default" : "secondary"}>{isSale ? "SALE" : "PURCHASE"}</Badge>
+                    <span className="font-mono text-lg font-bold">{selectedImeiResult.imei}</span>
+                  </div>
+                  <p className="text-sm font-medium">{selectedImeiResult.item.productName}</p>
+                  {(selectedImeiResult.item.variationStorage || selectedImeiResult.item.variationColor) && (
+                    <p className="text-xs text-primary">{selectedImeiResult.item.variationStorage} / {selectedImeiResult.item.variationColor}</p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Invoice Details */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-1"><FileText className="h-3.5 w-3.5" /> Invoice Details</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <span className="text-xs text-muted-foreground">Invoice #</span>
+                      <p className="font-mono font-medium">{rec.invoiceNumber || "—"}</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <span className="text-xs text-muted-foreground">Date</span>
+                      <p className="font-medium">{format(new Date(isSale ? rec.saleDate : rec.purchaseDate), "dd MMM yyyy HH:mm")}</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <span className="text-xs text-muted-foreground">Sale Price</span>
+                      <p className="font-medium">₨ {selectedImeiResult.item.salePrice?.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <span className="text-xs text-muted-foreground">Total</span>
+                      <p className="font-medium">₨ {selectedImeiResult.item.total?.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-2">
+                      <span className="text-xs text-muted-foreground">Payment Status</span>
+                      <Badge variant={rec.paymentStatus === "paid" ? "default" : "destructive"} className="mt-0.5">{rec.paymentStatus}</Badge>
+                    </div>
+                    {isSale && rec.remainingAmount > 0 && (
+                      <div className="rounded-lg bg-destructive/10 p-2">
+                        <span className="text-xs text-muted-foreground">Remaining</span>
+                        <p className="font-bold text-destructive">₨ {rec.remainingAmount?.toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Customer/Supplier Details */}
+                {isSale ? (
+                  <div className="space-y-2">
+                    <Separator />
+                    <h4 className="text-sm font-semibold flex items-center gap-1"><User className="h-3.5 w-3.5" /> Customer Details</h4>
+                    {cust ? (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-lg bg-muted/50 p-2">
+                          <span className="text-xs text-muted-foreground">Name</span>
+                          <p className="font-medium">{cust.name}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted/50 p-2">
+                          <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</span>
+                          <p className="font-medium">{cust.phone}</p>
+                        </div>
+                        {cust.cnic && (
+                          <div className="rounded-lg bg-muted/50 p-2">
+                            <span className="text-xs text-muted-foreground">CNIC</span>
+                            <p className="font-medium">{cust.cnic}</p>
+                          </div>
+                        )}
+                        {cust.address && (
+                          <div className="rounded-lg bg-muted/50 p-2">
+                            <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" /> Address</span>
+                            <p className="font-medium">{cust.address}</p>
+                          </div>
+                        )}
+                        <div className="rounded-lg bg-muted/50 p-2">
+                          <span className="text-xs text-muted-foreground">Current Balance</span>
+                          <p className="font-medium">₨ {cust.currentBalance?.toLocaleString() || 0}</p>
+                          <Badge variant={cust.balanceType === "payable" ? "destructive" : "default"} className="text-xs mt-0.5">{cust.balanceType}</Badge>
+                        </div>
+                        <div className="rounded-lg bg-muted/50 p-2">
+                          <span className="text-xs text-muted-foreground">Customer ID</span>
+                          <p className="font-mono text-xs">{cust.customerId}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">{rec.customerName || "Walk-in Customer"} — {rec.customerPhone || "No phone"}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Separator />
+                    <h4 className="text-sm font-semibold flex items-center gap-1"><User className="h-3.5 w-3.5" /> Supplier Details</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="rounded-lg bg-muted/50 p-2">
+                        <span className="text-xs text-muted-foreground">Supplier</span>
+                        <p className="font-medium">{rec.supplierName || "—"}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted/50 p-2">
+                        <span className="text-xs text-muted-foreground">Paid</span>
+                        <p className="font-medium">₨ {rec.paidAmount?.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

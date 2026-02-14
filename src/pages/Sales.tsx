@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   BarChart3, Wifi, WifiOff, Eye, Printer, Trash2, Undo2, CreditCard, AlertCircle,
+  Search, ScanBarcode, X,
 } from "lucide-react";
 import {
   getAllSales, deleteSale, addSaleReturn, startSaleAutoSync, Sale, SaleItem,
@@ -26,6 +27,10 @@ const Sales = () => {
   const [printSale, setPrintSale] = useState<Sale | null>(null);
   const [viewSale, setViewSale] = useState<Sale | null>(null);
 
+  // IMEI search
+  const [imeiQuery, setImeiQuery] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
   // Return
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnItem, setReturnItem] = useState<SaleItem | null>(null);
@@ -75,9 +80,19 @@ const Sales = () => {
     }
   };
 
-  const totalSales = sales.reduce((s, sl) => s + sl.totalAmount, 0);
-  const totalPaid = sales.reduce((s, sl) => s + sl.paidAmount, 0);
-  const totalPending = sales.reduce((s, sl) => s + sl.remainingAmount, 0);
+  // IMEI filter
+  const filteredSales = imeiQuery.trim()
+    ? sales.filter(s => s.items.some(item => item.imeiNumbers?.some(imei => imei.toLowerCase().includes(imeiQuery.toLowerCase()))))
+    : sales;
+
+  const totalSales = filteredSales.reduce((s, sl) => s + sl.totalAmount, 0);
+  const totalPaid = filteredSales.reduce((s, sl) => s + sl.paidAmount, 0);
+  const totalPending = filteredSales.reduce((s, sl) => s + sl.remainingAmount, 0);
+
+  const handleScanToggle = () => {
+    setScanning(!scanning);
+    if (!scanning) setTimeout(() => scanInputRef.current?.focus(), 100);
+  };
 
   return (
     <div className="space-y-6">
@@ -89,6 +104,31 @@ const Sales = () => {
             {online ? "Online" : "Offline"}
           </Badge>
         </div>
+      </div>
+
+      {/* IMEI Search */}
+      <div className="flex gap-2">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            ref={scanInputRef}
+            placeholder={scanning ? "Scan barcode now..." : "Search by IMEI number..."}
+            value={imeiQuery}
+            onChange={(e) => setImeiQuery(e.target.value)}
+            className={`pl-9 ${scanning ? "border-primary ring-2 ring-primary/20" : ""}`}
+          />
+          {imeiQuery && (
+            <button onClick={() => setImeiQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2">
+              <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+            </button>
+          )}
+        </div>
+        <Button variant={scanning ? "default" : "outline"} size="icon" onClick={handleScanToggle} title="Scan mode">
+          <ScanBarcode className="h-4 w-4" />
+        </Button>
+        {imeiQuery && (
+          <Badge variant="secondary" className="self-center text-xs">{filteredSales.length} result(s)</Badge>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -132,7 +172,7 @@ const Sales = () => {
 
       {loading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}</div>
-      ) : sales.length === 0 ? (
+      ) : filteredSales.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center py-12 text-center">
             <BarChart3 className="h-10 w-10 text-muted-foreground mb-3 opacity-50" />
@@ -157,7 +197,7 @@ const Sales = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sales.map(s => (
+                  {filteredSales.map(s => (
                     <TableRow key={s.localId}>
                       <TableCell className="font-mono text-xs">{s.invoiceNumber}</TableCell>
                       <TableCell>{format(new Date(s.saleDate), "dd/MM/yyyy")}</TableCell>
