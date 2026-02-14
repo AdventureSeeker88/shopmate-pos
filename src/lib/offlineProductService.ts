@@ -162,9 +162,23 @@ const pullFromFirebase = async () => {
   const db = await getDB();
   try {
     const snap = await getDocs(query(collection(firestore, "products"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
     const existing = await db.getAll("products");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("products", local.localId);
+        // Also clean up related IMEI records
+        const imeis = await db.getAllFromIndex("imeiRecords", "by-product", local.localId);
+        for (const i of imeis) await db.delete("imeiRecords", i.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("products");
     for (const docSnap of snap.docs) {
-      if (!existing.find(p => p.id === docSnap.id)) {
+      if (!remainingLocal.find(p => p.id === docSnap.id)) {
         const d = docSnap.data();
         await db.put("products", {
           id: docSnap.id, localId: generateLocalId(),

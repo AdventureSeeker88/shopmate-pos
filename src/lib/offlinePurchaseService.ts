@@ -234,9 +234,20 @@ const pullFromFirebase = async () => {
   const db = await getDB();
   try {
     const snap = await getDocs(query(collection(firestore, "purchases"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
     const existing = await db.getAll("purchases");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("purchases", local.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("purchases");
     for (const docSnap of snap.docs) {
-      if (!existing.find(p => p.id === docSnap.id)) {
+      if (!remainingLocal.find(p => p.id === docSnap.id)) {
         const d = docSnap.data();
         await db.put("purchases", {
           id: docSnap.id, localId: generateLocalId(),
