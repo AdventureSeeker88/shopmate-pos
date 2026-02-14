@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBpqYBOkouwEgMSV3NMX4iM0HXnnBDC5YY",
@@ -15,4 +15,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Enable Firestore offline persistence (non-blocking, fire-and-forget)
+enableIndexedDbPersistence(db).catch((err) => {
+  console.warn("Firestore persistence failed:", err.code);
+});
+
 export default app;
