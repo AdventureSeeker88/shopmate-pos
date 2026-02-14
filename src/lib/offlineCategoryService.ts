@@ -37,16 +37,25 @@ const saveCategoryToFirebase = async (cat: Category): Promise<string> => {
   const { localId, syncStatus, id, ...data } = cat;
   if (id) {
     await updateDoc(doc(firestore, "categories", id), {
-      ...data,
-      createdAt: Timestamp.fromDate(new Date(cat.createdAt)),
+      ...data, createdAt: Timestamp.fromDate(new Date(cat.createdAt)),
     });
     return id;
   }
   const docRef = await addDoc(collection(firestore, "categories"), {
-    ...data,
-    createdAt: Timestamp.fromDate(new Date(cat.createdAt)),
+    ...data, createdAt: Timestamp.fromDate(new Date(cat.createdAt)),
   });
   return docRef.id;
+};
+
+// Background sync helper
+const syncCategoryInBackground = async (cat: Category) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    cat.id = await saveCategoryToFirebase(cat);
+    cat.syncStatus = "synced";
+    await db.put("categories", cat);
+  } catch (e) { console.warn("Background category sync failed:", e); }
 };
 
 export const addCategory = async (categoryName: string) => {
@@ -55,13 +64,12 @@ export const addCategory = async (categoryName: string) => {
   const now = new Date().toISOString();
   const cat: Category = { id: "", localId, categoryName, createdAt: now, syncStatus: "pending" };
 
-  if (isOnline()) {
-    try {
-      cat.id = await saveCategoryToFirebase(cat);
-      cat.syncStatus = "synced";
-    } catch (e) { console.warn("Firebase save failed:", e); }
-  }
+  // Save to IndexedDB FIRST (instant)
   await db.put("categories", cat);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncCategoryInBackground({ ...cat }).catch(console.warn);
+
   return localId;
 };
 
@@ -70,20 +78,26 @@ export const updateCategory = async (localId: string, categoryName: string) => {
   const existing = await db.get("categories", localId);
   if (!existing) throw new Error("Category not found");
   const updated: Category = { ...existing, categoryName, syncStatus: "pending" };
-  if (isOnline()) {
-    try { await saveCategoryToFirebase(updated); updated.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("categories", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncCategoryInBackground({ ...updated }).catch(console.warn);
 };
 
 export const deleteCategory = async (localId: string) => {
   const db = await getDB();
   const cat = await db.get("categories", localId);
   if (!cat) return;
-  if (cat.id && isOnline()) {
-    try { await deleteDoc(doc(firestore, "categories", cat.id)); } catch (e) { console.warn(e); }
-  }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("categories", localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (cat.id && isOnline()) {
+    deleteDoc(doc(firestore, "categories", cat.id)).catch(console.warn);
+  }
 };
 
 const pullFromFirebase = async () => {
@@ -96,8 +110,7 @@ const pullFromFirebase = async () => {
       if (!existing.find(c => c.id === docSnap.id)) {
         const data = docSnap.data();
         await db.put("categories", {
-          id: docSnap.id,
-          localId: generateLocalId(),
+          id: docSnap.id, localId: generateLocalId(),
           categoryName: data.categoryName || "",
           createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           syncStatus: "synced",
@@ -109,7 +122,6 @@ const pullFromFirebase = async () => {
 
 export const getAllCategories = async (): Promise<Category[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   const all = await db.getAll("categories");
   return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

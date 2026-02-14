@@ -99,6 +99,17 @@ const saveReturnToFirebase = async (r: SaleReturn): Promise<string> => {
   return ref.id;
 };
 
+// Background sync helper
+const syncSaleInBackground = async (sale: Sale) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    sale.id = await saveSaleToFirebase(sale);
+    sale.syncStatus = "synced";
+    await db.put("sales", sale);
+  } catch (e) { console.warn("Background sale sync failed:", e); }
+};
+
 export const addSale = async (data: {
   customerLocalId: string; customerName: string; customerId: string; customerPhone: string;
   items: SaleItem[]; totalAmount: number; paidAmount: number;
@@ -110,15 +121,15 @@ export const addSale = async (data: {
   const remaining = data.totalAmount - data.paidAmount;
   const sale: Sale = { ...data, id: "", localId, invoiceNumber, remainingAmount: remaining, createdAt: new Date().toISOString(), syncStatus: "pending" };
 
-  if (isOnline()) {
-    try { sale.id = await saveSaleToFirebase(sale); sale.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+  // Save to IndexedDB FIRST (instant)
   await db.put("sales", sale);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncSaleInBackground({ ...sale }).catch(console.warn);
 
   // Update stock & mark IMEIs as sold
   for (const item of data.items) {
     await updateStock(item.productLocalId, -item.quantity);
-    // Mark IMEIs as sold via product DB
     if (item.imeiNumbers.length > 0) {
       const productDB = await openDB("product-management", 1);
       for (const imei of item.imeiNumbers) {
@@ -172,10 +183,21 @@ export const addSaleReturn = async (data: {
     returnReason: data.returnReason, returnDate: data.returnDate,
     returnAmount: data.returnAmount, createdAt: new Date().toISOString(), syncStatus: "pending",
   };
-  if (isOnline()) {
-    try { ret.id = await saveReturnToFirebase(ret); ret.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("saleReturns", ret);
+
+  // Then sync to Firebase in background (non-blocking)
+  if (isOnline()) {
+    (async () => {
+      try {
+        const db2 = await getDB();
+        ret.id = await saveReturnToFirebase(ret);
+        ret.syncStatus = "synced";
+        await db2.put("saleReturns", ret);
+      } catch (e) { console.warn("Background return sync failed:", e); }
+    })();
+  }
 
   // Reverse stock
   await updateStock(data.productLocalId, data.returnQuantity);
@@ -236,7 +258,6 @@ const pullFromFirebase = async () => {
 
 export const getAllSales = async (): Promise<Sale[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   return (await db.getAll("sales")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
@@ -250,12 +271,19 @@ export const deleteSale = async (localId: string) => {
   const db = await getDB();
   const sale = await db.get("sales", localId);
   if (!sale) return;
-  if (sale.id && isOnline()) { try { await deleteDoc(doc(firestore, "sales", sale.id)); } catch (e) { console.warn(e); } }
-  // Reverse stock
+
+  // Reverse stock first
   for (const item of sale.items) {
     await updateStock(item.productLocalId, item.quantity);
   }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("sales", localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (sale.id && isOnline()) {
+    deleteDoc(doc(firestore, "sales", sale.id)).catch(console.warn);
+  }
 };
 
 export const syncSales = async () => {

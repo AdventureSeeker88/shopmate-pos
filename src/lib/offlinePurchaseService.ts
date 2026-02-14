@@ -15,7 +15,6 @@ export interface PurchaseItem {
   salePrice: number;
   total: number;
   imeiNumbers: string[];
-  // Variation details
   variationStorage?: string;
   variationColor?: string;
 }
@@ -97,6 +96,17 @@ const saveReturnToFirebase = async (r: PurchaseReturn): Promise<string> => {
   return ref.id;
 };
 
+// Background sync helper
+const syncPurchaseInBackground = async (purchase: Purchase) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    purchase.id = await savePurchaseToFirebase(purchase);
+    purchase.syncStatus = "synced";
+    await db.put("purchases", purchase);
+  } catch (e) { console.warn("Background purchase sync failed:", e); }
+};
+
 export const addPurchase = async (data: {
   supplierLocalId: string; supplierName: string; supplierId: string;
   items: PurchaseItem[]; totalAmount: number; paidAmount: number;
@@ -106,10 +116,11 @@ export const addPurchase = async (data: {
   const localId = generateLocalId();
   const purchase: Purchase = { ...data, id: "", localId, createdAt: new Date().toISOString(), syncStatus: "pending" };
 
-  if (isOnline()) {
-    try { purchase.id = await savePurchaseToFirebase(purchase); purchase.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+  // Save to IndexedDB FIRST (instant)
   await db.put("purchases", purchase);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncPurchaseInBackground({ ...purchase }).catch(console.warn);
 
   // Update stock and add IMEI records for each item
   for (const item of data.items) {
@@ -122,10 +133,8 @@ export const addPurchase = async (data: {
     }
   }
 
-  // Add supplier ledger entry
+  // Add supplier ledger entry (IDB first, Firebase background)
   try {
-    const { addDoc: addFireDoc } = await import("firebase/firestore");
-    const { db: fs } = await import("@/lib/firebase");
     const supplierLedgerDB = await openDB("supplier-management", 1);
     const ledgerLocalId = generateLocalId();
     const ledgerEntry = {
@@ -135,20 +144,27 @@ export const addPurchase = async (data: {
       description: `Purchase - ${data.items.map(i => i.productName).join(", ")}`,
       amount: data.totalAmount, createdAt: new Date().toISOString(), syncStatus: "pending" as const,
     };
-    if (isOnline() && data.supplierId) {
-      try {
-        const ref = await addFireDoc(collection(fs, "supplierLedger"), {
-          supplierId: data.supplierId, date: Timestamp.fromDate(new Date(data.purchaseDate)),
-          type: "purchase", description: ledgerEntry.description, amount: data.totalAmount,
-          createdAt: Timestamp.now(),
-        });
-        ledgerEntry.id = ref.id;
-        (ledgerEntry as any).syncStatus = "synced";
-      } catch (e) { console.warn(e); }
-    }
+
+    // Save ledger to IndexedDB FIRST (instant)
     await supplierLedgerDB.put("supplierLedger", ledgerEntry);
 
-    // If paid amount > 0, also add a payment ledger entry so balance shows only pending
+    // Then sync ledger to Firebase in background (non-blocking)
+    if (isOnline() && data.supplierId) {
+      (async () => {
+        try {
+          const ref = await addDoc(collection(firestore, "supplierLedger"), {
+            supplierId: data.supplierId, date: Timestamp.fromDate(new Date(data.purchaseDate)),
+            type: "purchase", description: ledgerEntry.description, amount: data.totalAmount,
+            createdAt: Timestamp.now(),
+          });
+          ledgerEntry.id = ref.id;
+          (ledgerEntry as any).syncStatus = "synced";
+          await supplierLedgerDB.put("supplierLedger", ledgerEntry);
+        } catch (e) { console.warn("Background ledger sync failed:", e); }
+      })();
+    }
+
+    // If paid amount > 0, also add a payment ledger entry
     if (data.paidAmount > 0) {
       const payLedgerLocalId = generateLocalId();
       const payLedgerEntry = {
@@ -158,18 +174,25 @@ export const addPurchase = async (data: {
         description: `Payment on purchase - ${data.items.map(i => i.productName).join(", ")}`,
         amount: data.paidAmount, createdAt: new Date().toISOString(), syncStatus: "pending" as const,
       };
-      if (isOnline() && data.supplierId) {
-        try {
-          const ref2 = await addFireDoc(collection(fs, "supplierLedger"), {
-            supplierId: data.supplierId, date: Timestamp.fromDate(new Date(data.purchaseDate)),
-            type: "payment", description: payLedgerEntry.description, amount: data.paidAmount,
-            createdAt: Timestamp.now(),
-          });
-          payLedgerEntry.id = ref2.id;
-          (payLedgerEntry as any).syncStatus = "synced";
-        } catch (e) { console.warn(e); }
-      }
+
+      // Save payment ledger to IndexedDB FIRST (instant)
       await supplierLedgerDB.put("supplierLedger", payLedgerEntry);
+
+      // Then sync to Firebase in background (non-blocking)
+      if (isOnline() && data.supplierId) {
+        (async () => {
+          try {
+            const ref2 = await addDoc(collection(firestore, "supplierLedger"), {
+              supplierId: data.supplierId, date: Timestamp.fromDate(new Date(data.purchaseDate)),
+              type: "payment", description: payLedgerEntry.description, amount: data.paidAmount,
+              createdAt: Timestamp.now(),
+            });
+            payLedgerEntry.id = ref2.id;
+            (payLedgerEntry as any).syncStatus = "synced";
+            await supplierLedgerDB.put("supplierLedger", payLedgerEntry);
+          } catch (e) { console.warn("Background payment ledger sync failed:", e); }
+        })();
+      }
     }
   } catch (e) { console.warn("Ledger entry failed:", e); }
 
@@ -185,10 +208,20 @@ export const addPurchaseReturn = async (data: {
   const localId = generateLocalId();
   const ret: PurchaseReturn = { ...data, id: "", localId, createdAt: new Date().toISOString(), syncStatus: "pending" };
 
-  if (isOnline()) {
-    try { ret.id = await saveReturnToFirebase(ret); ret.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+  // Save to IndexedDB FIRST (instant)
   await db.put("purchaseReturns", ret);
+
+  // Then sync to Firebase in background (non-blocking)
+  if (isOnline()) {
+    (async () => {
+      try {
+        const db2 = await getDB();
+        ret.id = await saveReturnToFirebase(ret);
+        ret.syncStatus = "synced";
+        await db2.put("purchaseReturns", ret);
+      } catch (e) { console.warn("Background return sync failed:", e); }
+    })();
+  }
 
   // Decrease stock
   await updateStock(data.productLocalId, -data.returnQuantity);
@@ -222,7 +255,6 @@ const pullFromFirebase = async () => {
 
 export const getAllPurchases = async (): Promise<Purchase[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   return (await db.getAll("purchases")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
@@ -236,12 +268,19 @@ export const deletePurchase = async (localId: string) => {
   const db = await getDB();
   const purchase = await db.get("purchases", localId);
   if (!purchase) return;
-  if (purchase.id && isOnline()) { try { await deleteDoc(doc(firestore, "purchases", purchase.id)); } catch (e) { console.warn(e); } }
-  // Reverse stock
+
+  // Reverse stock first
   for (const item of purchase.items) {
     await updateStock(item.productLocalId, -item.quantity);
   }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("purchases", localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (purchase.id && isOnline()) {
+    deleteDoc(doc(firestore, "purchases", purchase.id)).catch(console.warn);
+  }
 };
 
 export const syncPurchases = async () => {

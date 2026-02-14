@@ -79,6 +79,27 @@ const saveLedgerToFirebase = async (entry: CustomerLedgerEntry, firebaseCustomer
   return ref.id;
 };
 
+// Background sync helpers
+const syncCustomerInBackground = async (customer: Customer) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    customer.id = await saveCustomerToFirebase(customer);
+    customer.syncStatus = "synced";
+    await db.put("customers", customer);
+  } catch (e) { console.warn("Background customer sync failed:", e); }
+};
+
+const syncLedgerInBackground = async (entry: CustomerLedgerEntry, firebaseCustomerId: string) => {
+  if (!isOnline() || !firebaseCustomerId) return;
+  const db = await getDB();
+  try {
+    entry.id = await saveLedgerToFirebase(entry, firebaseCustomerId);
+    entry.syncStatus = "synced";
+    await db.put("customerLedger", entry);
+  } catch (e) { console.warn("Background ledger sync failed:", e); }
+};
+
 // CRUD
 export const addCustomer = async (data: {
   name: string; phone: string; cnic: string; address: string;
@@ -92,10 +113,13 @@ export const addCustomer = async (data: {
     id: "", localId, customerId, ...data, currentBalance: data.openingBalance,
     status: "active", createdAt: data.createdAt || new Date().toISOString(), syncStatus: "pending",
   };
-  if (isOnline()) {
-    try { customer.id = await saveCustomerToFirebase(customer); customer.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("customers", customer);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncCustomerInBackground({ ...customer }).catch(console.warn);
+
   return localId;
 };
 
@@ -104,20 +128,28 @@ export const updateCustomer = async (localId: string, data: Partial<Customer>) =
   const existing = await db.get("customers", localId);
   if (!existing) throw new Error("Customer not found");
   const updated: Customer = { ...existing, ...data, syncStatus: "pending" };
-  if (isOnline()) {
-    try { await saveCustomerToFirebase(updated); updated.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("customers", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncCustomerInBackground({ ...updated }).catch(console.warn);
 };
 
 export const deleteCustomer = async (localId: string) => {
   const db = await getDB();
   const c = await db.get("customers", localId);
   if (!c) return;
-  if (c.id && isOnline()) { try { await deleteDoc(doc(firestore, "customers", c.id)); } catch (e) { console.warn(e); } }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("customers", localId);
   const ledger = await db.getAllFromIndex("customerLedger", "by-customer", localId);
   for (const l of ledger) await db.delete("customerLedger", l.localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (c.id && isOnline()) {
+    deleteDoc(doc(firestore, "customers", c.id)).catch(console.warn);
+  }
 };
 
 const pullFromFirebase = async () => {
@@ -145,7 +177,6 @@ const pullFromFirebase = async () => {
 
 export const getAllCustomers = async (): Promise<Customer[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   return (await db.getAll("customers")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
@@ -166,13 +197,15 @@ export const addCustomerLedgerEntry = async (entry: Omit<CustomerLedgerEntry, "i
   const db = await getDB();
   const localId = generateLocalId();
   const record: CustomerLedgerEntry = { ...entry, id: "", localId, createdAt: new Date().toISOString(), syncStatus: "pending" };
-  if (isOnline() && entry.customerId) {
-    try {
-      record.id = await saveLedgerToFirebase(record, entry.customerId);
-      record.syncStatus = "synced";
-    } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("customerLedger", record);
+
+  // Then sync to Firebase in background (non-blocking)
+  if (entry.customerId) {
+    syncLedgerInBackground({ ...record }, entry.customerId).catch(console.warn);
+  }
+
   return localId;
 };
 
@@ -191,10 +224,12 @@ export const recalculateCustomerBalance = async (customerLocalId: string) => {
     ...customer, currentBalance: Math.abs(balance),
     balanceType: balance >= 0 ? "payable" : "receivable", syncStatus: "pending",
   };
-  if (isOnline() && updated.id) {
-    try { await saveCustomerToFirebase(updated); updated.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("customers", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncCustomerInBackground({ ...updated }).catch(console.warn);
 };
 
 // Customer Payment
@@ -214,13 +249,15 @@ export const addCustomerPayment = async (payment: {
     description: `Payment via ${payment.method}${payment.note ? " - " + payment.note : ""}`,
     amount: payment.amount, createdAt: new Date().toISOString(), syncStatus: "pending",
   };
-  if (isOnline() && customer.id) {
-    try {
-      entry.id = await saveLedgerToFirebase(entry, customer.id);
-      entry.syncStatus = "synced";
-    } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("customerLedger", entry);
+
+  // Then sync to Firebase in background (non-blocking)
+  if (customer.id) {
+    syncLedgerInBackground({ ...entry }, customer.id).catch(console.warn);
+  }
+
   await recalculateCustomerBalance(payment.customerLocalId);
   return localId;
 };
