@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Receipt, Plus, Trash2, Wifi, WifiOff, ShoppingCart, Eye, Undo2,
-  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer, Users,
+  ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer, Users, UserPlus,
 } from "lucide-react";
 import {
   getAllPurchases, addPurchase, deletePurchase, addPurchaseReturn,
@@ -24,7 +24,7 @@ import PurchaseInvoice from "@/components/purchases/PurchaseInvoice";
 import { getAllProducts, Product, checkIMEIExists, addProduct, addIMEI } from "@/lib/offlineProductService";
 import { getAllSuppliers, Supplier, recalculateBalanceLocal } from "@/lib/offlineSupplierService";
 import { getAllCategories, Category } from "@/lib/offlineCategoryService";
-import { getAllCustomers, Customer, addCustomerLedgerEntry, recalculateCustomerBalance } from "@/lib/offlineCustomerService";
+import { getAllCustomers, Customer, addCustomerLedgerEntry, recalculateCustomerBalance, addCustomer } from "@/lib/offlineCustomerService";
 import { format } from "date-fns";
 
 const Purchases = () => {
@@ -78,6 +78,13 @@ const Purchases = () => {
   const [returnIMEIs, setReturnIMEIs] = useState("");
   const [returnReason, setReturnReason] = useState("");
 
+  // Quick add customer
+  const [addCustOpen, setAddCustOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustCnic, setNewCustCnic] = useState("");
+  const [newCustAddress, setNewCustAddress] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -103,6 +110,26 @@ const Purchases = () => {
   const selectedProductData = products.find(p => p.localId === selectedProduct);
   const selectedSupplierData = suppliers.find(s => s.localId === selectedSupplier);
   const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
+
+  const handleQuickAddCustomer = async () => {
+    if (!newCustName || !newCustPhone) {
+      toast({ title: "Error", description: "Name and Phone are required.", variant: "destructive" });
+      return;
+    }
+    try {
+      const localId = await addCustomer({
+        name: newCustName, phone: newCustPhone, cnic: newCustCnic, address: newCustAddress,
+        openingBalance: 0, balanceType: "payable",
+      });
+      await load();
+      setSelectedCustomer(localId);
+      setAddCustOpen(false);
+      setNewCustName(""); setNewCustPhone(""); setNewCustCnic(""); setNewCustAddress("");
+      toast({ title: "Customer Added" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
 
   const handleProductSelect = (productLocalId: string) => {
     const p = products.find(pr => pr.localId === productLocalId);
@@ -520,7 +547,12 @@ const Purchases = () => {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label>Customer *</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Customer *</Label>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setAddCustOpen(true)}>
+                        <UserPlus className="h-3 w-3" /> Add New
+                      </Button>
+                    </div>
                     <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
                       <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
                       <SelectContent>
@@ -1086,6 +1118,35 @@ const Purchases = () => {
         onOpenChange={open => { if (!open) setPrintPurchase(null); }}
         purchase={printPurchase}
       />
+
+      {/* Quick Add Customer Dialog */}
+      <Dialog open={addCustOpen} onOpenChange={setAddCustOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add New Customer</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Name *</Label>
+              <Input placeholder="Customer name" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone *</Label>
+              <Input placeholder="Phone number" value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>CNIC</Label>
+              <Input placeholder="CNIC (optional)" value={newCustCnic} onChange={e => setNewCustCnic(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Input placeholder="Address (optional)" value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddCustOpen(false)}>Cancel</Button>
+            <Button onClick={handleQuickAddCustomer} disabled={!newCustName || !newCustPhone}>Add Customer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
