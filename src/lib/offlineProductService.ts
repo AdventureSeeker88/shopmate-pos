@@ -16,13 +16,12 @@ export interface Product {
   id: string;
   localId: string;
   productName: string;
-  categoryId: string;       // localId of category
+  categoryId: string;
   categoryName: string;
   costPrice: number;
   salePrice: number;
   currentStock: number;
   stockAlertQty: number;
-  // Mobile-specific fields
   isMobile: boolean;
   brand: string;
   model: string;
@@ -94,15 +93,38 @@ const saveIMEIToFirebase = async (r: IMEIRecord): Promise<string> => {
   return ref.id;
 };
 
+// Background sync helper - saves to IDB first, then syncs Firebase without blocking
+const syncProductInBackground = async (product: Product) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    product.id = await saveProductToFirebase(product);
+    product.syncStatus = "synced";
+    await db.put("products", product);
+  } catch (e) { console.warn("Background product sync failed:", e); }
+};
+
+const syncIMEIInBackground = async (record: IMEIRecord) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    record.id = await saveIMEIToFirebase(record);
+    record.syncStatus = "synced";
+    await db.put("imeiRecords", record);
+  } catch (e) { console.warn("Background IMEI sync failed:", e); }
+};
+
 export const addProduct = async (data: Omit<Product, "id" | "localId" | "createdAt" | "syncStatus">) => {
   const db = await getDB();
   const localId = generateLocalId();
   const product: Product = { ...data, id: "", localId, createdAt: new Date().toISOString(), syncStatus: "pending" };
 
-  if (isOnline()) {
-    try { product.id = await saveProductToFirebase(product); product.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+  // Save to IndexedDB FIRST (instant)
   await db.put("products", product);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncProductInBackground({ ...product }).catch(console.warn);
+
   return localId;
 };
 
@@ -111,21 +133,28 @@ export const updateProduct = async (localId: string, data: Partial<Product>) => 
   const existing = await db.get("products", localId);
   if (!existing) throw new Error("Product not found");
   const updated: Product = { ...existing, ...data, syncStatus: "pending" };
-  if (isOnline()) {
-    try { await saveProductToFirebase(updated); updated.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("products", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncProductInBackground({ ...updated }).catch(console.warn);
 };
 
 export const deleteProduct = async (localId: string) => {
   const db = await getDB();
   const p = await db.get("products", localId);
   if (!p) return;
-  if (p.id && isOnline()) { try { await deleteDoc(doc(firestore, "products", p.id)); } catch (e) { console.warn(e); } }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("products", localId);
-  // Delete associated IMEIs
   const imeis = await db.getAllFromIndex("imeiRecords", "by-product", localId);
   for (const i of imeis) await db.delete("imeiRecords", i.localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (p.id && isOnline()) {
+    deleteDoc(doc(firestore, "products", p.id)).catch(console.warn);
+  }
 };
 
 const pullFromFirebase = async () => {
@@ -155,7 +184,6 @@ const pullFromFirebase = async () => {
 
 export const getAllProducts = async (): Promise<Product[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   return (await db.getAll("products")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
@@ -171,10 +199,12 @@ export const updateStock = async (localId: string, quantityChange: number) => {
   if (!p) return;
   p.currentStock += quantityChange;
   p.syncStatus = "pending";
-  if (isOnline()) {
-    try { await saveProductToFirebase(p); p.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("products", p);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncProductInBackground({ ...p }).catch(console.warn);
 };
 
 // IMEI
@@ -184,10 +214,13 @@ export const addIMEI = async (data: { productLocalId: string; productId: string;
   const record: IMEIRecord = {
     id: "", localId, ...data, status: "in_stock", saleLocalId: "", createdAt: new Date().toISOString(), syncStatus: "pending",
   };
-  if (isOnline()) {
-    try { record.id = await saveIMEIToFirebase(record); record.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("imeiRecords", record);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncIMEIInBackground({ ...record }).catch(console.warn);
+
   return localId;
 };
 

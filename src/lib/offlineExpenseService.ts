@@ -46,14 +46,28 @@ const saveToFirebase = async (e: Expense): Promise<string> => {
   return ref.id;
 };
 
+// Background sync helper
+const syncExpenseInBackground = async (expense: Expense) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    expense.id = await saveToFirebase(expense);
+    expense.syncStatus = "synced";
+    await db.put("expenses", expense);
+  } catch (e) { console.warn("Background expense sync failed:", e); }
+};
+
 export const addExpense = async (data: { title: string; description: string; amount: number; date: string }) => {
   const db = await getDB();
   const localId = generateLocalId();
   const expense: Expense = { ...data, id: "", localId, createdAt: new Date().toISOString(), syncStatus: "pending" };
-  if (isOnline()) {
-    try { expense.id = await saveToFirebase(expense); expense.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("expenses", expense);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncExpenseInBackground({ ...expense }).catch(console.warn);
+
   return localId;
 };
 
@@ -62,18 +76,26 @@ export const updateExpense = async (localId: string, data: Partial<Expense>) => 
   const existing = await db.get("expenses", localId);
   if (!existing) throw new Error("Expense not found");
   const updated: Expense = { ...existing, ...data, syncStatus: "pending" };
-  if (isOnline()) {
-    try { await saveToFirebase(updated); updated.syncStatus = "synced"; } catch (e) { console.warn(e); }
-  }
+
+  // Save to IndexedDB FIRST (instant)
   await db.put("expenses", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncExpenseInBackground({ ...updated }).catch(console.warn);
 };
 
 export const deleteExpense = async (localId: string) => {
   const db = await getDB();
   const e = await db.get("expenses", localId);
   if (!e) return;
-  if (e.id && isOnline()) { try { await deleteDoc(doc(firestore, "expenses", e.id)); } catch (err) { console.warn(err); } }
+
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("expenses", localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (e.id && isOnline()) {
+    deleteDoc(doc(firestore, "expenses", e.id)).catch(console.warn);
+  }
 };
 
 const pullFromFirebase = async () => {
@@ -99,7 +121,6 @@ const pullFromFirebase = async () => {
 
 export const getAllExpenses = async (): Promise<Expense[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullFromFirebase().catch(console.warn);
   return (await db.getAll("expenses")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };

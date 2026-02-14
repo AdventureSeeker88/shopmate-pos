@@ -77,7 +77,6 @@ const getDB = async () => {
 };
 
 const generateLocalId = () => `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-
 const isOnline = () => navigator.onLine;
 
 // ─── Firebase Direct Save Helpers ───
@@ -86,14 +85,12 @@ const saveSupplierToFirebase = async (supplier: Supplier): Promise<string> => {
   const { localId, syncStatus, id, ...data } = supplier;
   if (id) {
     await updateDoc(doc(firestore, "suppliers", id), {
-      ...data,
-      createdAt: Timestamp.fromDate(new Date(supplier.createdAt)),
+      ...data, createdAt: Timestamp.fromDate(new Date(supplier.createdAt)),
     });
     return id;
   } else {
     const docRef = await addDoc(collection(firestore, "suppliers"), {
-      ...data,
-      createdAt: Timestamp.fromDate(new Date(supplier.createdAt)),
+      ...data, createdAt: Timestamp.fromDate(new Date(supplier.createdAt)),
     });
     return docRef.id;
   }
@@ -102,8 +99,7 @@ const saveSupplierToFirebase = async (supplier: Supplier): Promise<string> => {
 const savePaymentToFirebase = async (payment: SupplierPayment, firebaseSupplierId: string): Promise<string> => {
   const { localId, syncStatus, supplierLocalId, id, ...data } = payment;
   const docRef = await addDoc(collection(firestore, "supplierPayments"), {
-    ...data,
-    supplierId: firebaseSupplierId,
+    ...data, supplierId: firebaseSupplierId,
     date: Timestamp.fromDate(new Date(payment.date)),
     createdAt: Timestamp.fromDate(new Date(payment.createdAt)),
   });
@@ -113,15 +109,27 @@ const savePaymentToFirebase = async (payment: SupplierPayment, firebaseSupplierI
 const saveLedgerToFirebase = async (entry: SupplierLedgerEntry, firebaseSupplierId: string): Promise<string> => {
   const { localId, syncStatus, supplierLocalId, id, ...data } = entry;
   const docRef = await addDoc(collection(firestore, "supplierLedger"), {
-    ...data,
-    supplierId: firebaseSupplierId,
+    ...data, supplierId: firebaseSupplierId,
     date: Timestamp.fromDate(new Date(entry.date)),
     createdAt: Timestamp.fromDate(new Date(entry.createdAt)),
   });
   return docRef.id;
 };
 
-// ─── Supplier CRUD (Online-first, Offline-fallback) ───
+// ─── Background Sync Helpers ───
+
+const syncSupplierInBackground = async (supplier: Supplier) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    const firebaseId = await saveSupplierToFirebase(supplier);
+    supplier.id = firebaseId;
+    supplier.syncStatus = "synced";
+    await db.put("suppliers", supplier);
+  } catch (e) { console.warn("Background supplier sync failed:", e); }
+};
+
+// ─── Supplier CRUD (IndexedDB first, Firebase background) ───
 
 export const addSupplierOffline = async (data: {
   name: string; phone: string; address: string; cnic: string;
@@ -132,26 +140,17 @@ export const addSupplierOffline = async (data: {
   const now = new Date().toISOString();
 
   const supplier: Supplier = {
-    id: "",
-    localId,
-    ...data,
+    id: "", localId, ...data,
     currentBalance: data.openingBalance,
-    createdAt: now,
-    syncStatus: "pending",
+    createdAt: now, syncStatus: "pending",
   };
 
-  if (isOnline()) {
-    try {
-      const firebaseId = await saveSupplierToFirebase(supplier);
-      supplier.id = firebaseId;
-      supplier.syncStatus = "synced";
-      console.log("✅ Supplier saved directly to Firebase:", firebaseId);
-    } catch (e) {
-      console.warn("⚠️ Firebase save failed, storing offline:", e);
-    }
-  }
-
+  // Save to IndexedDB FIRST (instant)
   await db.put("suppliers", supplier);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncSupplierInBackground({ ...supplier }).catch(console.warn);
+
   return localId;
 };
 
@@ -162,17 +161,11 @@ export const updateSupplierOffline = async (localId: string, data: Partial<Suppl
 
   const updated: Supplier = { ...existing, ...data, syncStatus: "pending" };
 
-  if (isOnline()) {
-    try {
-      await saveSupplierToFirebase(updated);
-      updated.syncStatus = "synced";
-      console.log("✅ Supplier updated directly on Firebase");
-    } catch (e) {
-      console.warn("⚠️ Firebase update failed, stored offline:", e);
-    }
-  }
-
+  // Save to IndexedDB FIRST (instant)
   await db.put("suppliers", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncSupplierInBackground({ ...updated }).catch(console.warn);
 };
 
 export const deleteSupplierOffline = async (localId: string) => {
@@ -180,17 +173,17 @@ export const deleteSupplierOffline = async (localId: string) => {
   const supplier = await db.get("suppliers", localId);
   if (!supplier) return;
 
-  if (supplier.id && isOnline()) {
-    try { await deleteDoc(doc(firestore, "suppliers", supplier.id)); } catch (e) { console.warn("Firebase delete failed", e); }
-  }
-
+  // Delete from IndexedDB FIRST (instant)
   await db.delete("suppliers", localId);
-
   const payments = await db.getAllFromIndex("supplierPayments", "by-supplier", localId);
   for (const p of payments) await db.delete("supplierPayments", p.localId);
-
   const ledgerEntries = await db.getAllFromIndex("supplierLedger", "by-supplier", localId);
   for (const l of ledgerEntries) await db.delete("supplierLedger", l.localId);
+
+  // Then delete from Firebase in background (non-blocking)
+  if (supplier.id && isOnline()) {
+    deleteDoc(doc(firestore, "suppliers", supplier.id)).catch(console.warn);
+  }
 };
 
 export const pullSuppliersFromFirebase = async () => {
@@ -205,12 +198,9 @@ export const pullSuppliersFromFirebase = async () => {
       if (!match) {
         const localId = generateLocalId();
         const supplier: Supplier = {
-          id: docSnap.id,
-          localId,
-          name: data.name || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          cnic: data.cnic || "",
+          id: docSnap.id, localId,
+          name: data.name || "", phone: data.phone || "",
+          address: data.address || "", cnic: data.cnic || "",
           openingBalance: data.openingBalance || 0,
           balanceType: data.balanceType || "payable",
           currentBalance: data.currentBalance || 0,
@@ -218,23 +208,19 @@ export const pullSuppliersFromFirebase = async () => {
           syncStatus: "synced",
         };
         await db.put("suppliers", supplier);
-        console.log("📥 Pulled supplier from Firebase:", supplier.name);
       }
     }
-  } catch (e) {
-    console.warn("⚠️ Failed to pull suppliers from Firebase:", e);
-  }
+  } catch (e) { console.warn("Failed to pull suppliers from Firebase:", e); }
 };
 
 export const getAllSuppliers = async (): Promise<Supplier[]> => {
   const db = await getDB();
-  // Load from local DB instantly, sync Firebase in background
   pullSuppliersFromFirebase().catch(console.warn);
   const all = await db.getAll("suppliers");
   return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 
-// ─── Supplier Payments (Online-first) ───
+// ─── Supplier Payments (IndexedDB first, Firebase background) ───
 
 export const addSupplierPaymentOffline = async (payment: {
   supplierLocalId: string; amount: number;
@@ -250,47 +236,40 @@ export const addSupplierPaymentOffline = async (payment: {
 
   const paymentRecord: SupplierPayment = {
     id: "", localId: payLocalId,
-    supplierId: supplier.id,
-    supplierLocalId: payment.supplierLocalId,
-    amount: payment.amount,
-    method: payment.method,
-    date: payment.date,
-    note: payment.note,
-    createdAt: now,
-    syncStatus: "pending",
+    supplierId: supplier.id, supplierLocalId: payment.supplierLocalId,
+    amount: payment.amount, method: payment.method,
+    date: payment.date, note: payment.note,
+    createdAt: now, syncStatus: "pending",
   };
 
   const ledgerRecord: SupplierLedgerEntry = {
     id: "", localId: ledgerLocalId,
-    supplierId: supplier.id,
-    supplierLocalId: payment.supplierLocalId,
-    date: payment.date,
-    type: "payment",
+    supplierId: supplier.id, supplierLocalId: payment.supplierLocalId,
+    date: payment.date, type: "payment",
     description: `Payment via ${payment.method}${payment.note ? " - " + payment.note : ""}`,
-    amount: payment.amount,
-    createdAt: now,
-    syncStatus: "pending",
+    amount: payment.amount, createdAt: now, syncStatus: "pending",
   };
 
-  // If online and supplier is synced, save directly to Firebase
-  if (isOnline() && supplier.id) {
-    try {
-      const payId = await savePaymentToFirebase(paymentRecord, supplier.id);
-      paymentRecord.id = payId;
-      (paymentRecord as any).syncStatus = "synced";
-
-      const ledgerId = await saveLedgerToFirebase(ledgerRecord, supplier.id);
-      ledgerRecord.id = ledgerId;
-      (ledgerRecord as any).syncStatus = "synced";
-
-      console.log("✅ Payment & ledger saved directly to Firebase");
-    } catch (e) {
-      console.warn("⚠️ Firebase payment save failed, storing offline:", e);
-    }
-  }
-
+  // Save to IndexedDB FIRST (instant)
   await db.put("supplierPayments", paymentRecord);
   await db.put("supplierLedger", ledgerRecord);
+
+  // Then sync to Firebase in background (non-blocking)
+  if (isOnline() && supplier.id) {
+    (async () => {
+      try {
+        const payId = await savePaymentToFirebase(paymentRecord, supplier.id);
+        paymentRecord.id = payId;
+        paymentRecord.syncStatus = "synced";
+        await db.put("supplierPayments", paymentRecord);
+
+        const ledgerId = await saveLedgerToFirebase(ledgerRecord, supplier.id);
+        ledgerRecord.id = ledgerId;
+        ledgerRecord.syncStatus = "synced";
+        await db.put("supplierLedger", ledgerRecord);
+      } catch (e) { console.warn("Background payment sync failed:", e); }
+    })();
+  }
 
   // Recalculate balance locally
   await recalculateBalanceLocal(payment.supplierLocalId);
@@ -328,17 +307,11 @@ export const recalculateBalanceLocal = async (supplierLocalId: string) => {
     syncStatus: "pending",
   };
 
-  // Sync updated balance to Firebase if online
-  if (isOnline() && updated.id) {
-    try {
-      await saveSupplierToFirebase(updated);
-      updated.syncStatus = "synced";
-    } catch (e) {
-      console.warn("Balance sync failed:", e);
-    }
-  }
-
+  // Save to IndexedDB FIRST (instant)
   await db.put("suppliers", updated);
+
+  // Then sync to Firebase in background (non-blocking)
+  syncSupplierInBackground({ ...updated }).catch(console.warn);
 };
 
 // ─── Sync Engine (for offline pending records) ───
@@ -346,59 +319,45 @@ export const recalculateBalanceLocal = async (supplierLocalId: string) => {
 const syncPendingSuppliers = async () => {
   const db = await getDB();
   const pending = await db.getAllFromIndex("suppliers", "by-sync", "pending");
-
   for (const supplier of pending) {
     try {
       const firebaseId = await saveSupplierToFirebase(supplier);
       supplier.id = firebaseId || supplier.id;
       supplier.syncStatus = "synced";
       await db.put("suppliers", supplier);
-      console.log("✅ Synced pending supplier:", supplier.name);
-    } catch (e) {
-      console.error("Failed to sync supplier:", supplier.localId, e);
-    }
+    } catch (e) { console.error("Failed to sync supplier:", supplier.localId, e); }
   }
 };
 
 const syncPendingPayments = async () => {
   const db = await getDB();
   const pending = await db.getAllFromIndex("supplierPayments", "by-sync", "pending");
-
   for (const payment of pending) {
     try {
       const supplier = await db.get("suppliers", payment.supplierLocalId);
       if (!supplier?.id) continue;
-
       const payId = await savePaymentToFirebase(payment, supplier.id);
       payment.id = payId;
       payment.supplierId = supplier.id;
       payment.syncStatus = "synced";
       await db.put("supplierPayments", payment);
-      console.log("✅ Synced pending payment:", payment.localId);
-    } catch (e) {
-      console.error("Failed to sync payment:", payment.localId, e);
-    }
+    } catch (e) { console.error("Failed to sync payment:", payment.localId, e); }
   }
 };
 
 const syncPendingLedger = async () => {
   const db = await getDB();
   const pending = await db.getAllFromIndex("supplierLedger", "by-sync", "pending");
-
   for (const entry of pending) {
     try {
       const supplier = await db.get("suppliers", entry.supplierLocalId);
       if (!supplier?.id) continue;
-
       const ledgerId = await saveLedgerToFirebase(entry, supplier.id);
       entry.id = ledgerId;
       entry.supplierId = supplier.id;
       entry.syncStatus = "synced";
       await db.put("supplierLedger", entry);
-      console.log("✅ Synced pending ledger:", entry.localId);
-    } catch (e) {
-      console.error("Failed to sync ledger entry:", entry.localId, e);
-    }
+    } catch (e) { console.error("Failed to sync ledger entry:", entry.localId, e); }
   }
 };
 
@@ -425,12 +384,10 @@ export const startAutoSync = () => {
   syncListenerAdded = true;
 
   window.addEventListener("online", () => {
-    console.log("🟢 Back online — syncing pending data...");
-    syncAll().then(() => console.log("✅ Auto-sync complete")).catch(console.error);
+    syncAll().then(() => console.log("Auto-sync complete")).catch(console.error);
   });
 
-  // Initial sync of any pending records
   if (isOnline()) {
-    syncAll().then(() => console.log("✅ Initial sync complete")).catch(console.error);
+    syncAll().catch(console.error);
   }
 };
