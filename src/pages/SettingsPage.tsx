@@ -8,14 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { getShopSettings, saveShopSettings, ShopSettings } from "@/lib/shopSettings";
-import { Store, Printer, Save } from "lucide-react";
+import { getOfflineCredentials, saveOfflineCredentials, OfflineCredentials } from "@/lib/offlineAuth";
+import { Store, Printer, Save, Lock } from "lucide-react";
 
 const SettingsPage = () => {
   const { toast } = useToast();
   const [settings, setSettings] = useState<ShopSettings>(getShopSettings());
+  const [creds, setCreds] = useState<OfflineCredentials>(getOfflineCredentials());
 
   useEffect(() => {
     setSettings(getShopSettings());
+    setCreds(getOfflineCredentials());
   }, []);
 
   const handleSave = () => {
@@ -97,6 +100,32 @@ const SettingsPage = () => {
                 <p className="text-sm font-bold tracking-widest uppercase">Purchase Invoice</p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Offline Login Credentials */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Lock className="h-4 w-4" /> Offline Login</CardTitle>
+            <CardDescription>Credentials used when internet is not available</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input type="email" value={creds.email} onChange={e => setCreds(p => ({ ...p, email: e.target.value }))} placeholder="offline@email.com" />
+            </div>
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <Input type="password" value={creds.password} onChange={e => setCreds(p => ({ ...p, password: e.target.value }))} placeholder="••••••••" />
+            </div>
+            <Button variant="outline" className="w-full gap-2" onClick={() => {
+              saveOfflineCredentials(creds);
+              toast({ title: "Offline credentials updated", description: "New offline login saved." });
+            }}>
+              <Lock className="h-4 w-4" /> Save Offline Login
+            </Button>
           </CardContent>
         </Card>
       </div>
