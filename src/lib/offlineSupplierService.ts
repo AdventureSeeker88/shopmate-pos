@@ -228,8 +228,8 @@ export const pullSuppliersFromFirebase = async () => {
 
 export const getAllSuppliers = async (): Promise<Supplier[]> => {
   const db = await getDB();
-  // Pull from Firebase first if online to ensure cross-browser data
-  await pullSuppliersFromFirebase();
+  // Load from local DB instantly, sync Firebase in background
+  pullSuppliersFromFirebase().catch(console.warn);
   const all = await db.getAll("suppliers");
   return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };

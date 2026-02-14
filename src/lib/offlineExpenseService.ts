@@ -99,7 +99,8 @@ const pullFromFirebase = async () => {
 
 export const getAllExpenses = async (): Promise<Expense[]> => {
   const db = await getDB();
-  await pullFromFirebase();
+  // Load from local DB instantly, sync Firebase in background
+  pullFromFirebase().catch(console.warn);
   return (await db.getAll("expenses")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 
