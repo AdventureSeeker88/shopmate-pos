@@ -21,8 +21,9 @@ import {
   startPurchaseAutoSync, Purchase, PurchaseItem,
 } from "@/lib/offlinePurchaseService";
 import PurchaseInvoice from "@/components/purchases/PurchaseInvoice";
-import { getAllProducts, Product, checkIMEIExists } from "@/lib/offlineProductService";
+import { getAllProducts, Product, checkIMEIExists, addProduct, addIMEI } from "@/lib/offlineProductService";
 import { getAllSuppliers, Supplier, recalculateBalanceLocal } from "@/lib/offlineSupplierService";
+import { getAllCategories, Category } from "@/lib/offlineCategoryService";
 import { getAllCustomers, Customer, addCustomerLedgerEntry, recalculateCustomerBalance } from "@/lib/offlineCustomerService";
 import { format } from "date-fns";
 
@@ -32,6 +33,7 @@ const Purchases = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
   const [tab, setTab] = useState("list");
@@ -47,6 +49,7 @@ const Purchases = () => {
 
   // Add item dialog
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [itemEntryMode, setItemEntryMode] = useState<"existing" | "manual">("existing");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [selectedVariation, setSelectedVariation] = useState("");
   const [itemQty, setItemQty] = useState(1);
@@ -56,6 +59,15 @@ const Purchases = () => {
   const [itemIMEIs, setItemIMEIs] = useState<string[]>([""]);
   const [imeiMode, setImeiMode] = useState<"manual" | "scan">("manual");
   const scanInputRef = useRef<HTMLInputElement>(null);
+
+  // Manual entry fields
+  const [manualCategory, setManualCategory] = useState("");
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualModel, setManualModel] = useState("");
+  const [manualStorage, setManualStorage] = useState("");
+  const [manualColor, setManualColor] = useState("");
+  const [manualIMEI1, setManualIMEI1] = useState("");
+  const [manualIMEI2, setManualIMEI2] = useState("");
 
   // View & Return & Print
   const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
@@ -69,11 +81,12 @@ const Purchases = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, pr, s, cu] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers(), getAllCustomers()]);
+      const [p, pr, s, cu, cats] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers(), getAllCustomers(), getAllCategories()]);
       setPurchases(p);
       setProducts(pr);
       setSuppliers(s);
       setCustomers(cu);
+      setCategories(cats);
     } finally { setLoading(false); }
   }, []);
 
@@ -144,7 +157,81 @@ const Purchases = () => {
     }
   };
 
+  const resetItemForm = () => {
+    setSelectedProduct(""); setSelectedVariation(""); setItemQty(1); setItemCost(0); setItemSale(0);
+    setItemIMEIs([""]); setImeiMode("manual"); setItemEntryMode("existing");
+    setManualCategory(""); setManualBrand(""); setManualModel(""); setManualStorage(""); setManualColor("");
+    setManualIMEI1(""); setManualIMEI2("");
+  };
+
   const handleAddItem = async () => {
+    if (itemEntryMode === "manual") {
+      // Manual entry mode - create new product and add to items
+      if (!manualBrand || !manualModel) {
+        toast({ title: "Error", description: "Brand and Model are required.", variant: "destructive" });
+        return;
+      }
+      if (!manualCategory) {
+        toast({ title: "Error", description: "Select a category.", variant: "destructive" });
+        return;
+      }
+      if (!itemCost) {
+        toast({ title: "Error", description: "Enter cost price.", variant: "destructive" });
+        return;
+      }
+
+      // Validate IMEIs
+      const imeis = [manualIMEI1, manualIMEI2].filter(Boolean);
+      if (imeis.length === 0) {
+        toast({ title: "Error", description: "Enter at least one IMEI number.", variant: "destructive" });
+        return;
+      }
+      const uniqueIMEIs = new Set(imeis);
+      if (uniqueIMEIs.size !== imeis.length) {
+        toast({ title: "Duplicate IMEI", description: "IMEI 1 and IMEI 2 must be different.", variant: "destructive" });
+        return;
+      }
+      for (const imei of imeis) {
+        const exists = await checkIMEIExists(imei);
+        if (exists) {
+          toast({ title: "IMEI Exists", description: `IMEI ${imei} is already in stock.`, variant: "destructive" });
+          return;
+        }
+      }
+
+      const categoryData = categories.find(c => c.localId === manualCategory);
+      const productName = `${manualBrand} ${manualModel}${manualStorage ? ` ${manualStorage}` : ""}${manualColor ? ` ${manualColor}` : ""}`;
+
+      // Create a new product in the product service
+      const newProductLocalId = await addProduct({
+        productName,
+        categoryId: manualCategory,
+        categoryName: categoryData?.categoryName || "",
+        costPrice: itemCost,
+        salePrice: itemSale,
+        currentStock: 0, // Stock will be updated by addPurchase
+        stockAlertQty: 1,
+        isMobile: true,
+        brand: manualBrand,
+        model: manualModel,
+        storage: manualStorage,
+        color: manualColor,
+        imeiTracking: true,
+        variations: [],
+      });
+
+      setItems(prev => [...prev, {
+        productLocalId: newProductLocalId, productName,
+        quantity: imeis.length, unitType: itemUnit, costPrice: itemCost, salePrice: itemSale,
+        total: itemCost * imeis.length, imeiNumbers: imeis,
+        variationStorage: manualStorage, variationColor: manualColor,
+      }]);
+      setAddItemOpen(false);
+      resetItemForm();
+      return;
+    }
+
+    // Existing product mode
     const p = products.find(pr => pr.localId === selectedProduct);
     if (!p) return;
     const imeis = p.isMobile ? itemIMEIs.filter(Boolean) : [];
@@ -167,7 +254,6 @@ const Purchases = () => {
       }
     }
 
-    // Get variation details
     let variationStorage = "";
     let variationColor = "";
     if (p.isMobile && selectedVariation !== "" && p.variations?.[Number(selectedVariation)]) {
@@ -183,7 +269,7 @@ const Purchases = () => {
       variationStorage, variationColor,
     }]);
     setAddItemOpen(false);
-    setSelectedProduct(""); setSelectedVariation(""); setItemQty(1); setItemCost(0); setItemSale(0); setItemIMEIs([""]); setImeiMode("manual");
+    resetItemForm();
   };
 
   const totalAmount = items.reduce((s, i) => s + i.total, 0);
@@ -606,157 +692,278 @@ const Purchases = () => {
       </Tabs>
 
       {/* Add Item Dialog */}
-      <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+      <Dialog open={addItemOpen} onOpenChange={v => { if (!v) { setAddItemOpen(false); resetItemForm(); } else setAddItemOpen(true); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Add Purchase Item</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            {/* Entry Mode Toggle */}
             <div className="space-y-2">
-              <Label>Product *</Label>
-              <Select value={selectedProduct} onValueChange={handleProductSelect}>
-                <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
-                <SelectContent>
-                  {products.map(p => <SelectItem key={p.localId} value={p.localId}>{p.productName} ({p.categoryName})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Entry Mode</Label>
+              <div className="flex gap-2">
+                <Button size="sm" variant={itemEntryMode === "existing" ? "default" : "outline"} className="flex-1"
+                  onClick={() => { setItemEntryMode("existing"); }}>
+                  <Package className="h-4 w-4 mr-1.5" /> Pick from Products
+                </Button>
+                <Button size="sm" variant={itemEntryMode === "manual" ? "default" : "outline"} className="flex-1"
+                  onClick={() => { setItemEntryMode("manual"); setSelectedProduct(""); }}>
+                  <Smartphone className="h-4 w-4 mr-1.5" /> New Phone (Manual)
+                </Button>
+              </div>
             </div>
 
-            {/* Variation selector for mobiles */}
-            {selectedProductData?.isMobile && selectedProductData.variations && selectedProductData.variations.length > 0 && (
-              <div className="space-y-2">
-                <Label>Select Variation *</Label>
-                <Select value={selectedVariation} onValueChange={handleVariationSelect}>
-                  <SelectTrigger><SelectValue placeholder="Select storage / color" /></SelectTrigger>
-                  <SelectContent>
-                    {selectedProductData.variations.map((v, idx) => (
-                      <SelectItem key={idx} value={String(idx)}>
-                        {v.storage} / {v.color} — Cost: Rs.{v.costPrice.toLocaleString()} | Sale: Rs.{v.salePrice.toLocaleString()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Mobile product details */}
-            {selectedProductData?.isMobile && (
-              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                  <Smartphone className="h-4 w-4" /> Mobile Details
+            {itemEntryMode === "manual" ? (
+              <>
+                {/* Category */}
+                <div className="space-y-2">
+                  <Label>Category *</Label>
+                  <Select value={manualCategory} onValueChange={setManualCategory}>
+                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <SelectContent>
+                      {categories.map(c => <SelectItem key={c.localId} value={c.localId}>{c.categoryName}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {/* Brand & Model */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Brand</Label>
-                    <p className="text-sm font-medium">{selectedProductData.brand || "—"}</p>
+                  <div className="space-y-2">
+                    <Label>Brand *</Label>
+                    <Input placeholder="e.g. Samsung" value={manualBrand} onChange={e => setManualBrand(e.target.value)} />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Model</Label>
-                    <p className="text-sm font-medium">{selectedProductData.model || "—"}</p>
+                  <div className="space-y-2">
+                    <Label>Model *</Label>
+                    <Input placeholder="e.g. Galaxy S24" value={manualModel} onChange={e => setManualModel(e.target.value)} />
                   </div>
-                  {selectedVariation !== "" && selectedProductData.variations?.[Number(selectedVariation)] && (
-                    <>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Storage</Label>
-                        <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].storage}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Color</Label>
-                        <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].color}</p>
-                      </div>
-                    </>
-                  )}
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <Badge variant="outline" className="text-xs">Stock: {selectedProductData.currentStock}</Badge>
-                  <Badge variant="outline" className="text-xs">IMEI Tracking: ON</Badge>
+
+                {/* Storage & Color */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Storage</Label>
+                    <Input placeholder="e.g. 128GB" value={manualStorage} onChange={e => setManualStorage(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Color</Label>
+                    <Input placeholder="e.g. Black" value={manualColor} onChange={e => setManualColor(e.target.value)} />
+                  </div>
                 </div>
-              </div>
-            )}
 
-            {/* Non-mobile product info */}
-            {selectedProductData && !selectedProductData.isMobile && (
-              <div className="rounded-lg border bg-muted/30 p-3 flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Current Stock</span>
-                <Badge variant="outline">{selectedProductData.currentStock} units</Badge>
-              </div>
-            )}
+                {/* Unit Type */}
+                <div className="space-y-2">
+                  <Label>Condition</Label>
+                  <Select value={itemUnit} onValueChange={v => setItemUnit(v as any)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">New</SelectItem>
+                      <SelectItem value="used">Used</SelectItem>
+                      <SelectItem value="box">Box Pack</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2">
-                <Label>Quantity</Label>
-                <Input type="number" min={1} value={itemQty} onChange={e => handleQtyChange(Number(e.target.value) || 1)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Unit Type</Label>
-                <Select value={itemUnit} onValueChange={v => setItemUnit(v as any)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="used">Used</SelectItem>
-                    <SelectItem value="box">Box Pack</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Margin</Label>
-                <p className="text-sm font-bold text-primary pt-2">Rs. {((itemSale - itemCost) * itemQty).toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Cost Price</Label>
-                <Input type="number" value={itemCost || ""} onChange={e => setItemCost(Number(e.target.value))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Sale Price</Label>
-                <Input type="number" value={itemSale || ""} onChange={e => setItemSale(Number(e.target.value))} />
-              </div>
-            </div>
-
-            {/* IMEI Section for mobiles */}
-            {selectedProductData?.isMobile && (
-              <div className="space-y-3">
+                {/* IMEI 1 & IMEI 2 */}
                 <Separator />
-                <div className="flex items-center justify-between">
+                <div className="space-y-3">
                   <Label className="flex items-center gap-2">
-                    <ScanBarcode className="h-4 w-4" /> IMEI Numbers ({itemIMEIs.filter(Boolean).length}/{itemQty})
+                    <ScanBarcode className="h-4 w-4" /> IMEI Numbers
                   </Label>
-                  <div className="flex gap-1">
-                    <Button type="button" size="sm" variant={imeiMode === "manual" ? "default" : "outline"} onClick={() => setImeiMode("manual")}>Manual</Button>
-                    <Button type="button" size="sm" variant={imeiMode === "scan" ? "default" : "outline"}
-                      onClick={() => { setImeiMode("scan"); setTimeout(() => scanInputRef.current?.focus(), 100); }}>
-                      <ScanBarcode className="h-3 w-3 mr-1" /> Scan
-                    </Button>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">IMEI 1 *</Label>
+                      <Input placeholder="Enter IMEI 1" value={manualIMEI1} onChange={e => setManualIMEI1(e.target.value.trim())}
+                        className={manualIMEI1 ? "border-primary/50" : ""} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">IMEI 2 (optional)</Label>
+                      <Input placeholder="Enter IMEI 2" value={manualIMEI2} onChange={e => setManualIMEI2(e.target.value.trim())}
+                        className={manualIMEI2 ? "border-primary/50" : ""} />
+                    </div>
                   </div>
                 </div>
 
-                {imeiMode === "scan" && (
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
-                    <p className="text-xs text-muted-foreground">Scan barcode or type IMEI and press Enter</p>
-                    <Input ref={scanInputRef} placeholder="Scan or type IMEI here..." onKeyDown={handleScanInput} autoFocus />
+                {/* Cost & Sale Price */}
+                <Separator />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Cost Price *</Label>
+                    <Input type="number" placeholder="0" value={itemCost || ""} onChange={e => setItemCost(Number(e.target.value))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Sale Price</Label>
+                    <Input type="number" placeholder="0" value={itemSale || ""} onChange={e => setItemSale(Number(e.target.value))} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Margin</Label>
+                  <p className="text-sm font-bold text-primary">
+                    Rs. {((itemSale - itemCost) * ([manualIMEI1, manualIMEI2].filter(Boolean).length || 1)).toLocaleString()}
+                  </p>
+                </div>
+
+                {/* Summary */}
+                <div className="rounded-lg bg-muted p-3 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Phone</span>
+                    <span className="text-sm">{manualBrand} {manualModel} {manualStorage} {manualColor}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Qty</span>
+                    <span className="text-sm">{[manualIMEI1, manualIMEI2].filter(Boolean).length || 0} unit(s)</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Item Total</span>
+                    <span className="text-lg font-bold">Rs. {(itemCost * ([manualIMEI1, manualIMEI2].filter(Boolean).length || 1)).toLocaleString()}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Existing product picker */}
+                <div className="space-y-2">
+                  <Label>Product *</Label>
+                  <Select value={selectedProduct} onValueChange={handleProductSelect}>
+                    <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
+                    <SelectContent>
+                      {products.map(p => <SelectItem key={p.localId} value={p.localId}>{p.productName} ({p.categoryName})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedProductData?.isMobile && selectedProductData.variations && selectedProductData.variations.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Select Variation *</Label>
+                    <Select value={selectedVariation} onValueChange={handleVariationSelect}>
+                      <SelectTrigger><SelectValue placeholder="Select storage / color" /></SelectTrigger>
+                      <SelectContent>
+                        {selectedProductData.variations.map((v, idx) => (
+                          <SelectItem key={idx} value={String(idx)}>
+                            {v.storage} / {v.color} — Cost: Rs.{v.costPrice.toLocaleString()} | Sale: Rs.{v.salePrice.toLocaleString()}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {itemIMEIs.map((imei, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-6 text-right">{idx + 1}.</span>
-                      <Input placeholder={`IMEI #${idx + 1}`} value={imei} onChange={e => handleIMEIChange(idx, e.target.value)}
-                        className={imei ? "border-primary/50" : ""} disabled={imeiMode === "scan"} />
-                      {imei && <Badge variant="outline" className="text-xs shrink-0 text-primary">✓</Badge>}
+                {selectedProductData?.isMobile && (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                      <Smartphone className="h-4 w-4" /> Mobile Details
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Brand</Label>
+                        <p className="text-sm font-medium">{selectedProductData.brand || "—"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Model</Label>
+                        <p className="text-sm font-medium">{selectedProductData.model || "—"}</p>
+                      </div>
+                      {selectedVariation !== "" && selectedProductData.variations?.[Number(selectedVariation)] && (
+                        <>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Storage</Label>
+                            <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].storage}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Color</Label>
+                            <p className="text-sm font-medium">{selectedProductData.variations[Number(selectedVariation)].color}</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                      <Badge variant="outline" className="text-xs">Stock: {selectedProductData.currentStock}</Badge>
+                      <Badge variant="outline" className="text-xs">IMEI Tracking: ON</Badge>
+                    </div>
+                  </div>
+                )}
 
-            <div className="rounded-lg bg-muted p-3 flex justify-between items-center">
-              <span className="font-medium">Item Total</span>
-              <span className="text-lg font-bold">Rs. {(itemCost * itemQty).toLocaleString()}</span>
-            </div>
+                {selectedProductData && !selectedProductData.isMobile && (
+                  <div className="rounded-lg border bg-muted/30 p-3 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Current Stock</span>
+                    <Badge variant="outline">{selectedProductData.currentStock} units</Badge>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-2">
+                    <Label>Quantity</Label>
+                    <Input type="number" min={1} value={itemQty} onChange={e => handleQtyChange(Number(e.target.value) || 1)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Unit Type</Label>
+                    <Select value={itemUnit} onValueChange={v => setItemUnit(v as any)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">New</SelectItem>
+                        <SelectItem value="used">Used</SelectItem>
+                        <SelectItem value="box">Box Pack</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Margin</Label>
+                    <p className="text-sm font-bold text-primary pt-2">Rs. {((itemSale - itemCost) * itemQty).toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Cost Price</Label>
+                    <Input type="number" value={itemCost || ""} onChange={e => setItemCost(Number(e.target.value))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Sale Price</Label>
+                    <Input type="number" value={itemSale || ""} onChange={e => setItemSale(Number(e.target.value))} />
+                  </div>
+                </div>
+
+                {selectedProductData?.isMobile && (
+                  <div className="space-y-3">
+                    <Separator />
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2">
+                        <ScanBarcode className="h-4 w-4" /> IMEI Numbers ({itemIMEIs.filter(Boolean).length}/{itemQty})
+                      </Label>
+                      <div className="flex gap-1">
+                        <Button type="button" size="sm" variant={imeiMode === "manual" ? "default" : "outline"} onClick={() => setImeiMode("manual")}>Manual</Button>
+                        <Button type="button" size="sm" variant={imeiMode === "scan" ? "default" : "outline"}
+                          onClick={() => { setImeiMode("scan"); setTimeout(() => scanInputRef.current?.focus(), 100); }}>
+                          <ScanBarcode className="h-3 w-3 mr-1" /> Scan
+                        </Button>
+                      </div>
+                    </div>
+
+                    {imeiMode === "scan" && (
+                      <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                        <p className="text-xs text-muted-foreground">Scan barcode or type IMEI and press Enter</p>
+                        <Input ref={scanInputRef} placeholder="Scan or type IMEI here..." onKeyDown={handleScanInput} autoFocus />
+                      </div>
+                    )}
+
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {itemIMEIs.map((imei, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-6 text-right">{idx + 1}.</span>
+                          <Input placeholder={`IMEI #${idx + 1}`} value={imei} onChange={e => handleIMEIChange(idx, e.target.value)}
+                            className={imei ? "border-primary/50" : ""} disabled={imeiMode === "scan"} />
+                          {imei && <Badge variant="outline" className="text-xs shrink-0 text-primary">✓</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-lg bg-muted p-3 flex justify-between items-center">
+                  <span className="font-medium">Item Total</span>
+                  <span className="text-lg font-bold">Rs. {(itemCost * itemQty).toLocaleString()}</span>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddItemOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddItem} disabled={!selectedProduct}>Add Item</Button>
+            <Button variant="outline" onClick={() => { setAddItemOpen(false); resetItemForm(); }}>Cancel</Button>
+            <Button onClick={handleAddItem} disabled={itemEntryMode === "existing" ? !selectedProduct : (!manualBrand || !manualModel || !manualCategory)}>Add Item</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
