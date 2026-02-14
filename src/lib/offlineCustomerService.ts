@@ -170,11 +170,12 @@ const pullFromFirebase = async () => {
       }
     }
 
-    // Add new records from Firebase
+    // Add new records from Firebase (skip if pending records exist to avoid duplicates)
     const remainingLocal = await db.getAll("customers");
+    const hasPending = remainingLocal.some(r => r.syncStatus === "pending");
     for (const docSnap of snap.docs) {
       const alreadyExists = remainingLocal.find(c => c.id === docSnap.id || (c.name === docSnap.data().name && c.phone === docSnap.data().phone));
-      if (!alreadyExists) {
+      if (!hasPending && !alreadyExists) {
         const d = docSnap.data();
         await db.put("customers", {
           id: docSnap.id, localId: generateLocalId(), customerId: d.customerId || generateCustomerId(),

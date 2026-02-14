@@ -206,10 +206,11 @@ export const pullSuppliersFromFirebase = async () => {
       }
     }
 
-    // Add new records from Firebase
+    // Add new records from Firebase (skip if pending records exist to avoid duplicates)
     const remainingLocal = await db.getAll("suppliers");
+    const hasPending = remainingLocal.some(r => r.syncStatus === "pending");
     for (const docSnap of snap.docs) {
-      if (!remainingLocal.find(s => s.id === docSnap.id)) {
+      if (!hasPending && !remainingLocal.find(s => s.id === docSnap.id)) {
         const data = docSnap.data();
         const localId = generateLocalId();
         const supplier: Supplier = {
