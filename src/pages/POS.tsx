@@ -278,7 +278,7 @@ const POS = () => {
 
   const totalAmount = cart.reduce((s, c) => s + c.total, 0);
   const totalMargin = cart.reduce((s, c) => s + c.margin, 0);
-  const grandTotal = Math.max(0, totalAmount - balanceAdjust);
+  const grandTotal = totalAmount + balanceAdjust;
   const remainingAmount = Math.max(0, grandTotal - paidAmount);
   const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
 
@@ -522,18 +522,18 @@ const POS = () => {
                         <div className="pt-1 border-t border-border mt-1 space-y-1">
                           <Label className="text-[10px] text-primary font-semibold">Adjust Previous Balance</Label>
                           <div className="flex items-center gap-1">
-                            <Input type="number" min={0} max={Math.min(selectedCustomerData.currentBalance, totalAmount)}
+                            <Input type="number" min={0} max={selectedCustomerData.currentBalance}
                               className="h-6 text-[10px] w-20 px-1" placeholder="0"
                               value={balanceAdjust || ""} onChange={e => {
-                                const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance, totalAmount);
+                                const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance);
                                 setBalanceAdjust(v);
                               }} />
                             <Button type="button" size="sm" variant="outline" className="h-6 text-[9px] px-1.5"
-                              onClick={() => setBalanceAdjust(Math.min(selectedCustomerData.currentBalance, totalAmount))}>
+                              onClick={() => setBalanceAdjust(selectedCustomerData.currentBalance)}>
                               Full
                             </Button>
                             {balanceAdjust > 0 && (
-                              <Badge variant="default" className="text-[9px] h-4">-Rs.{balanceAdjust.toLocaleString()}</Badge>
+                              <Badge variant="destructive" className="text-[9px] h-4">+Rs.{balanceAdjust.toLocaleString()}</Badge>
                             )}
                           </div>
                         </div>
@@ -612,9 +612,9 @@ const POS = () => {
                   <span className="text-sm font-semibold">Rs. {totalAmount.toLocaleString()}</span>
                 </div>
                 {balanceAdjust > 0 && (
-                  <div className="flex justify-between items-baseline text-primary">
-                    <span className="text-xs">Balance Adjust</span>
-                    <span className="text-sm font-semibold">- Rs. {balanceAdjust.toLocaleString()}</span>
+                  <div className="flex justify-between items-baseline text-destructive">
+                    <span className="text-xs">Previous Balance</span>
+                    <span className="text-sm font-semibold">+ Rs. {balanceAdjust.toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-baseline">
