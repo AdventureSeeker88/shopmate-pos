@@ -467,79 +467,66 @@ const POS = () => {
         </div>
 
         {/* Right: Cart & Customer */}
-        <div className="lg:col-span-5 flex flex-col gap-2 min-h-0">
-          {/* Customer Section */}
+        <div className="lg:col-span-5 flex flex-col gap-1.5 min-h-0">
+          {/* Customer Section - compact inline */}
           <Card className="shrink-0">
-            <CardContent className="p-2.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold flex items-center gap-1"><Users className="h-3 w-3" /> Customer</Label>
-                <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => setAddCustomerOpen(true)}>
+            <CardContent className="p-2 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Users className="h-3 w-3 text-muted-foreground shrink-0" />
+                <div className="relative flex-1">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input placeholder="Search customer..." className="pl-7 h-7 text-xs"
+                    value={customerSearch} onChange={e => setCustomerSearch(e.target.value)}
+                    onFocus={() => setCustomerSearch(customerSearch)} />
+                  {customerSearch && (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-36 overflow-auto">
+                      {filteredCustomers.map(c => (
+                        <button key={c.localId}
+                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/50 border-b last:border-0"
+                          onClick={() => { handleCustomerSearchSelect(c.localId); }}>
+                          <span className="font-medium">{c.name}</span>
+                          <span className="text-muted-foreground ml-2">{c.phone}</span>
+                          {c.currentBalance > 0 && (
+                            <Badge variant="destructive" className="text-[9px] ml-2 h-4">
+                              Rs.{c.currentBalance.toLocaleString()} {c.balanceType}
+                            </Badge>
+                          )}
+                        </button>
+                      ))}
+                      {filteredCustomers.length === 0 && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">No customer found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 shrink-0" onClick={() => setAddCustomerOpen(true)}>
                   <Plus className="h-3 w-3 mr-0.5" /> New
                 </Button>
               </div>
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                <Input placeholder="Search by name or phone..." className="pl-7 h-7 text-xs"
-                  value={customerSearch} onChange={e => setCustomerSearch(e.target.value)}
-                  onFocus={() => setCustomerSearch(customerSearch)} />
-                {customerSearch && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-36 overflow-auto">
-                    {filteredCustomers.map(c => (
-                      <button key={c.localId}
-                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/50 border-b last:border-0"
-                        onClick={() => { handleCustomerSearchSelect(c.localId); }}>
-                        <span className="font-medium">{c.name}</span>
-                        <span className="text-muted-foreground ml-2">{c.phone}</span>
-                        {c.currentBalance > 0 && (
-                          <Badge variant="destructive" className="text-[9px] ml-2 h-4">
-                            Rs.{c.currentBalance.toLocaleString()} {c.balanceType}
-                          </Badge>
-                        )}
-                      </button>
-                    ))}
-                    {filteredCustomers.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">No customer found</div>
-                    )}
-                  </div>
-                )}
-              </div>
               {selectedCustomerData && (
-                <div className="bg-muted/50 rounded-md p-2 text-xs space-y-0.5">
-                  <div className="flex justify-between">
-                    <span className="font-semibold">{selectedCustomerData.name}</span>
-                    <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => { setSelectedCustomer(""); setBalanceAdjust(0); }}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <div className="text-muted-foreground">{selectedCustomerData.phone}</div>
-                  {selectedCustomerData.cnic && <div className="text-muted-foreground">CNIC: {selectedCustomerData.cnic}</div>}
+                <div className="bg-muted/50 rounded-md px-2 py-1.5 text-xs flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold">{selectedCustomerData.name}</span>
+                  <span className="text-muted-foreground">{selectedCustomerData.phone}</span>
                   {selectedCustomerData.currentBalance > 0 && (
-                    <>
-                      <div className="text-destructive font-semibold">
-                        Previous: Rs. {selectedCustomerData.currentBalance.toLocaleString()} ({selectedCustomerData.balanceType})
-                      </div>
-                      {selectedCustomerData.balanceType === "payable" && cart.length > 0 && (
-                        <div className="pt-1 border-t border-border mt-1 space-y-1">
-                          <Label className="text-[10px] text-primary font-semibold">Adjust Previous Balance</Label>
-                          <div className="flex items-center gap-1">
-                            <Input type="number" min={0} max={selectedCustomerData.currentBalance}
-                              className="h-6 text-[10px] w-20 px-1" placeholder="0"
-                              value={balanceAdjust || ""} onChange={e => {
-                                const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance);
-                                setBalanceAdjust(v);
-                              }} />
-                            <Button type="button" size="sm" variant="outline" className="h-6 text-[9px] px-1.5"
-                              onClick={() => setBalanceAdjust(selectedCustomerData.currentBalance)}>
-                              Full
-                            </Button>
-                            {balanceAdjust > 0 && (
-                              <Badge variant="destructive" className="text-[9px] h-4">+Rs.{balanceAdjust.toLocaleString()}</Badge>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                    <Badge variant="destructive" className="text-[9px] h-4">
+                      Rs.{selectedCustomerData.currentBalance.toLocaleString()} {selectedCustomerData.balanceType}
+                    </Badge>
                   )}
+                  {selectedCustomerData.balanceType === "payable" && selectedCustomerData.currentBalance > 0 && cart.length > 0 && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <Input type="number" min={0} max={selectedCustomerData.currentBalance}
+                        className="h-5 text-[10px] w-16 px-1" placeholder="Adjust"
+                        value={balanceAdjust || ""} onChange={e => {
+                          const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance);
+                          setBalanceAdjust(v);
+                        }} />
+                      <Button type="button" size="sm" variant="outline" className="h-5 text-[9px] px-1.5"
+                        onClick={() => setBalanceAdjust(selectedCustomerData.currentBalance)}>Full</Button>
+                    </div>
+                  )}
+                  <Button variant="ghost" size="icon" className="h-4 w-4 shrink-0 ml-auto" onClick={() => { setSelectedCustomer(""); setBalanceAdjust(0); }}>
+                    <X className="h-3 w-3" />
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -547,13 +534,13 @@ const POS = () => {
 
           {/* Cart Items */}
           <Card className="flex-1 min-h-0 flex flex-col">
-            <CardHeader className="p-2.5 pb-1 shrink-0">
-              <CardTitle className="text-sm flex items-center gap-1">
-                <ShoppingCart className="h-4 w-4" /> Cart
+            <CardHeader className="p-2 pb-1 shrink-0">
+              <CardTitle className="text-xs flex items-center gap-1">
+                <ShoppingCart className="h-3.5 w-3.5" /> Cart
                 <Badge variant="secondary" className="text-[10px] ml-1 h-4">{cart.length}</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-2.5 pt-0 flex-1 min-h-0">
+            <CardContent className="p-2 pt-0 flex-1 min-h-0">
               <ScrollArea className="h-full">
                 {cart.length === 0 ? (
                   <div className="text-xs text-muted-foreground text-center py-8">
