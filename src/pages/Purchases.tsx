@@ -30,6 +30,7 @@ import { format } from "date-fns";
 const Purchases = () => {
   const { toast } = useToast();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [allPurchaseReturns, setAllPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -88,8 +89,9 @@ const Purchases = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, pr, s, cu, cats] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers(), getAllCustomers(), getAllCategories()]);
+      const [p, pr, s, cu, cats, prets] = await Promise.all([getAllPurchases(), getAllProducts(), getAllSuppliers(), getAllCustomers(), getAllCategories(), getAllPurchaseReturns()]);
       setPurchases(p);
+      setAllPurchaseReturns(prets);
       setProducts(pr);
       setSuppliers(s);
       setCustomers(cu);
@@ -474,6 +476,7 @@ const Purchases = () => {
                         <TableHead className="text-right">Paid</TableHead>
                         <TableHead className="text-right">Pending</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Return</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -488,9 +491,18 @@ const Purchases = () => {
                             {p.totalAmount - p.paidAmount > 0 ? `Rs. ${(p.totalAmount - p.paidAmount).toLocaleString()}` : "—"}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={p.paymentStatus === "paid" ? "default" : p.paymentStatus === "partial" ? "secondary" : "destructive"} className="text-xs">
+                          <Badge variant={p.paymentStatus === "paid" ? "default" : p.paymentStatus === "partial" ? "secondary" : "destructive"} className="text-xs">
                               {p.paymentStatus}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {allPurchaseReturns.filter(r => r.purchaseLocalId === p.localId).length > 0 ? (
+                              <Badge variant="destructive" className="text-[9px]">
+                                {allPurchaseReturns.filter(r => r.purchaseLocalId === p.localId).length} return(s)
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
