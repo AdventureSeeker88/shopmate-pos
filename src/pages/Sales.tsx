@@ -14,7 +14,7 @@ import {
   Search, ScanBarcode, X,
 } from "lucide-react";
 import {
-  getAllSales, deleteSale, addSaleReturn, startSaleAutoSync, Sale, SaleItem,
+  getAllSales, deleteSale, addSaleReturn, getSaleReturns, startSaleAutoSync, Sale, SaleItem, SaleReturn,
 } from "@/lib/offlineSaleService";
 import SaleInvoice from "@/components/sales/SaleInvoice";
 import { format } from "date-fns";
@@ -70,6 +70,7 @@ const Sales = () => {
         returnQuantity: returnQty, returnIMEIs: imeis,
         returnReason, returnDate: new Date().toISOString(),
         returnAmount: returnItem.salePrice * returnQty,
+        costPrice: returnItem.costPrice,
         customerLocalId: viewSale.customerLocalId, customerId: viewSale.customerId,
       });
       toast({ title: "Return Processed" });
@@ -233,68 +234,12 @@ const Sales = () => {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Sale Details — {viewSale?.invoiceNumber}</DialogTitle></DialogHeader>
           {viewSale && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg bg-muted/50 p-2.5">
-                  <span className="text-muted-foreground text-xs">Customer</span>
-                  <p className="font-medium">{viewSale.customerName}</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-2.5">
-                  <span className="text-muted-foreground text-xs">Date</span>
-                  <p className="font-medium">{format(new Date(viewSale.saleDate), "dd/MM/yyyy HH:mm")}</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-2.5">
-                  <span className="text-muted-foreground text-xs">Total</span>
-                  <p className="font-medium">Rs. {viewSale.totalAmount.toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-2.5">
-                  <span className="text-muted-foreground text-xs">Paid</span>
-                  <p className="font-medium">Rs. {viewSale.paidAmount.toLocaleString()}</p>
-                </div>
-              </div>
-              {viewSale.remainingAmount > 0 && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex justify-between items-center">
-                  <span className="text-sm text-destructive font-medium">Remaining</span>
-                  <span className="font-bold text-destructive">Rs. {viewSale.remainingAmount.toLocaleString()}</span>
-                </div>
-              )}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {viewSale.items.map((item, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>
-                        <p className="font-medium">{item.productName}</p>
-                        {(item.variationStorage || item.variationColor) && (
-                          <p className="text-xs text-primary">{item.variationStorage} / {item.variationColor}</p>
-                        )}
-                      </TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell className="text-right font-mono">Rs. {item.salePrice.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-mono">Rs. {item.total.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => { 
-                          setReturnItem(item); 
-                          setReturnIMEIs(item.imeiNumbers?.join("\n") || "");
-                          setReturnQty(item.quantity);
-                          setReturnOpen(true); 
-                        }}>
-                          <Undo2 className="h-3 w-3 mr-1" /> Return
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <ViewSaleContent sale={viewSale} onReturn={(item) => {
+              setReturnItem(item);
+              setReturnIMEIs(item.imeiNumbers?.join("\n") || "");
+              setReturnQty(item.quantity);
+              setReturnOpen(true);
+            }} />
           )}
         </DialogContent>
       </Dialog>
@@ -332,6 +277,106 @@ const Sales = () => {
 
       {/* Invoice */}
       <SaleInvoice open={!!printSale} onOpenChange={open => { if (!open) setPrintSale(null); }} sale={printSale} />
+    </div>
+  );
+};
+
+// View Sale Content with return details
+const ViewSaleContent = ({ sale, onReturn }: { sale: Sale; onReturn: (item: SaleItem) => void }) => {
+  const [returns, setReturns] = useState<SaleReturn[]>([]);
+  useEffect(() => { getSaleReturns(sale.localId).then(setReturns); }, [sale.localId]);
+
+  const totalMargin = sale.items.reduce((a, i) => a + (i.salePrice - i.costPrice) * i.quantity, 0);
+  const returnMargin = returns.reduce((a, r) => a + (r.returnAmount - (r.costPrice || 0) * r.returnQuantity), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <span className="text-muted-foreground text-xs">Customer</span>
+          <p className="font-medium">{sale.customerName}</p>
+        </div>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <span className="text-muted-foreground text-xs">Date</span>
+          <p className="font-medium">{format(new Date(sale.saleDate), "dd/MM/yyyy HH:mm")}</p>
+        </div>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <span className="text-muted-foreground text-xs">Total</span>
+          <p className="font-medium">Rs. {sale.totalAmount.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <span className="text-muted-foreground text-xs">Paid</span>
+          <p className="font-medium">Rs. {sale.paidAmount.toLocaleString()}</p>
+        </div>
+      </div>
+      {sale.remainingAmount > 0 && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex justify-between items-center">
+          <span className="text-sm text-destructive font-medium">Remaining</span>
+          <span className="font-bold text-destructive">Rs. {sale.remainingAmount.toLocaleString()}</span>
+        </div>
+      )}
+      <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 flex justify-between items-center">
+        <span className="text-sm text-primary font-medium">Margin</span>
+        <span className="font-bold text-primary">Rs. {(totalMargin - returnMargin).toLocaleString()}</span>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Product</TableHead>
+            <TableHead>Qty</TableHead>
+            <TableHead className="text-right">Price</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+            <TableHead></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sale.items.map((item, idx) => (
+            <TableRow key={idx}>
+              <TableCell>
+                <p className="font-medium">{item.productName}</p>
+                {(item.variationStorage || item.variationColor) && (
+                  <p className="text-xs text-primary">{item.variationStorage} / {item.variationColor}</p>
+                )}
+                {item.imeiNumbers?.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground font-mono">IMEI: {item.imeiNumbers.join(", ")}</p>
+                )}
+              </TableCell>
+              <TableCell>{item.quantity}</TableCell>
+              <TableCell className="text-right font-mono">Rs. {item.salePrice.toLocaleString()}</TableCell>
+              <TableCell className="text-right font-mono">Rs. {item.total.toLocaleString()}</TableCell>
+              <TableCell>
+                <Button variant="ghost" size="sm" onClick={() => onReturn(item)}>
+                  <Undo2 className="h-3 w-3 mr-1" /> Return
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      {/* Return History */}
+      {returns.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-destructive flex items-center gap-1">
+            <Undo2 className="h-3 w-3" /> Returns ({returns.length})
+          </h4>
+          {returns.map(r => (
+            <div key={r.localId} className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="font-medium">{r.productName}</span>
+                <span className="font-bold text-destructive">-Rs. {r.returnAmount.toLocaleString()}</span>
+              </div>
+              <div className="flex gap-3 text-muted-foreground">
+                <span>Qty: {r.returnQuantity}</span>
+                <span>Margin Lost: Rs. {(r.returnAmount - (r.costPrice || 0) * r.returnQuantity).toLocaleString()}</span>
+                <span>{format(new Date(r.returnDate), "dd/MM/yy")}</span>
+              </div>
+              {r.returnReason && <p className="text-muted-foreground">Reason: {r.returnReason}</p>}
+              {r.returnIMEIs?.length > 0 && <p className="font-mono text-muted-foreground">IMEIs: {r.returnIMEIs.join(", ")}</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

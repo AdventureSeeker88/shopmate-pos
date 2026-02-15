@@ -67,7 +67,8 @@ const DayBook = () => {
   const totalPurchaseReturnAmt = dayPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
 
   const totalCostOfSales = daySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
-  const grossProfit = (totalSales - totalSaleReturnAmt) - totalCostOfSales;
+  const returnCost = daySaleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
+  const grossProfit = (totalSales - totalSaleReturnAmt) - (totalCostOfSales - returnCost);
   const netProfit = grossProfit - totalExpenseAmt;
 
   const cashIn = totalSalesPaid;

@@ -563,39 +563,37 @@ const POS = () => {
                     Select items to add
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {cart.map((item, idx) => (
-                      <div key={idx} className="rounded-md border bg-card p-2 space-y-1">
-                        <div className="flex justify-between items-start gap-1">
+                      <div key={idx} className="rounded-md border bg-card px-2 py-1.5">
+                        <div className="flex justify-between items-center gap-1">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold truncate">{item.productName}</p>
+                            <p className="text-[11px] font-semibold truncate leading-tight">{item.productName}</p>
                             {(item.variationStorage || item.variationColor) && (
-                              <p className="text-[10px] text-primary">{item.variationStorage}/{item.variationColor}</p>
+                              <span className="text-[9px] text-primary">{item.variationStorage}/{item.variationColor}</span>
                             )}
                             {item.imeiNumbers.length > 0 && (
-                              <p className="text-[10px] text-muted-foreground font-mono">IMEI: {item.imeiNumbers.join(", ")}</p>
+                              <span className="text-[9px] text-muted-foreground font-mono ml-1">IMEI: {item.imeiNumbers[0]}</span>
                             )}
                           </div>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removeFromCart(idx)}>
-                            <Trash2 className="h-3 w-3 text-destructive" />
+                          <Button variant="ghost" size="icon" className="h-4 w-4 shrink-0" onClick={() => removeFromCart(idx)}>
+                            <Trash2 className="h-2.5 w-2.5 text-destructive" />
                           </Button>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px]">
-                          <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <div className="flex items-center gap-0.5 text-[10px]">
                             <span className="text-muted-foreground">Qty:</span>
-                            <Input type="number" min={1} className="h-5 w-12 text-[10px] px-1 text-center"
+                            <Input type="number" min={1} className="h-4 w-10 text-[10px] px-0.5 text-center"
                               value={item.quantity} onChange={e => updateCartQty(idx, Number(e.target.value))} />
                           </div>
-                          <span className="text-muted-foreground">Cost:{item.costPrice.toLocaleString()}</span>
-                          <div className="flex items-center gap-0.5 ml-auto">
-                            <span className="text-muted-foreground">Price:</span>
-                            <Input type="number" className="h-5 w-16 text-[10px] px-1" value={item.salePrice}
+                          <span className="text-[9px] text-muted-foreground">C:{item.costPrice.toLocaleString()}</span>
+                          <div className="flex items-center gap-0.5 ml-auto text-[10px]">
+                            <span className="text-muted-foreground">P:</span>
+                            <Input type="number" className="h-4 w-14 text-[10px] px-0.5" value={item.salePrice}
                               onChange={e => updateCartPrice(idx, Number(e.target.value))} />
                           </div>
-                        </div>
-                        <div className="flex justify-between text-[10px]">
-                          <span className="text-primary">Margin: {item.margin.toLocaleString()}</span>
-                          <span className="font-bold">Rs. {item.total.toLocaleString()}</span>
+                          <span className="text-[10px] text-primary font-semibold">M:{item.margin.toLocaleString()}</span>
+                          <span className="text-[10px] font-bold ml-1">Rs.{item.total.toLocaleString()}</span>
                         </div>
                       </div>
                     ))}
