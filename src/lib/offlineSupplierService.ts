@@ -313,6 +313,7 @@ export const recalculateBalanceLocal = async (supplierLocalId: string) => {
   for (const entry of ledgerEntries) {
     if (entry.type === "purchase") balance += entry.amount;
     else if (entry.type === "payment") balance -= entry.amount;
+    else if ((entry.type as string) === "purchase_return") balance -= entry.amount;
   }
 
   const balanceType = balance >= 0 ? "payable" : "receivable";

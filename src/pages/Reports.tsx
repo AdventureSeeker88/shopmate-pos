@@ -10,8 +10,8 @@ import {
   Wifi, WifiOff, Printer, Download, Calendar, TrendingUp, TrendingDown,
   ShoppingCart, Package, DollarSign, BarChart3, ArrowDownRight, ArrowUpRight,
 } from "lucide-react";
-import { getAllSales, Sale } from "@/lib/offlineSaleService";
-import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
+import { getAllSales, getAllSaleReturns, Sale, SaleReturn } from "@/lib/offlineSaleService";
+import { getAllPurchases, getAllPurchaseReturns, Purchase, PurchaseReturn } from "@/lib/offlinePurchaseService";
 import { getAllExpenses, Expense } from "@/lib/offlineExpenseService";
 import { getShopSettings } from "@/lib/shopSettings";
 import {
@@ -26,6 +26,8 @@ const Reports = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
   const [period, setPeriod] = useState<Period>("daily");
@@ -36,8 +38,8 @@ const Reports = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, e] = await Promise.all([getAllSales(), getAllPurchases(), getAllExpenses()]);
-      setSales(s); setPurchases(p); setExpenses(e);
+      const [s, p, e, sr, pr] = await Promise.all([getAllSales(), getAllPurchases(), getAllExpenses(), getAllSaleReturns(), getAllPurchaseReturns()]);
+      setSales(s); setPurchases(p); setExpenses(e); setSaleReturns(sr); setPurchaseReturns(pr);
     } finally { setLoading(false); }
   }, []);
 
@@ -67,14 +69,18 @@ const Reports = () => {
   const filteredSales = sales.filter(s => isWithinInterval(new Date(s.saleDate), range));
   const filteredPurchases = purchases.filter(p => isWithinInterval(new Date(p.purchaseDate), range));
   const filteredExpenses = expenses.filter(e => isWithinInterval(new Date(e.date), range));
+  const filteredSaleReturns = saleReturns.filter(r => isWithinInterval(new Date(r.returnDate), range));
+  const filteredPurchaseReturns = purchaseReturns.filter(r => isWithinInterval(new Date(r.returnDate), range));
 
   // Summaries
   const totalSalesAmt = filteredSales.reduce((a, s) => a + s.totalAmount, 0);
   const totalSalesPaid = filteredSales.reduce((a, s) => a + s.paidAmount, 0);
   const totalSalesRemaining = filteredSales.reduce((a, s) => a + s.remainingAmount, 0);
   const totalCost = filteredSales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
-  const totalMargin = totalSalesAmt - totalCost;
-  const totalPurchasesAmt = filteredPurchases.reduce((a, p) => a + p.totalAmount, 0);
+  const totalSaleReturnAmt = filteredSaleReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalPurchaseReturnAmt = filteredPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalMargin = (totalSalesAmt - totalSaleReturnAmt) - totalCost;
+  const totalPurchasesAmt = filteredPurchases.reduce((a, p) => a + p.totalAmount, 0) - totalPurchaseReturnAmt;
   const totalPurchasesPaid = filteredPurchases.reduce((a, p) => a + p.paidAmount, 0);
   const totalExpensesAmt = filteredExpenses.reduce((a, e) => a + e.amount, 0);
   const netProfit = totalMargin - totalExpensesAmt;

@@ -9,14 +9,14 @@ import {
   Calendar, TrendingUp, TrendingDown, DollarSign, ChevronLeft, ChevronRight,
   ShoppingCart, Package, Receipt, ArrowDownRight, ArrowUpRight, Wifi, WifiOff,
 } from "lucide-react";
-import { getAllSales, Sale } from "@/lib/offlineSaleService";
-import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
+import { getAllSales, getAllSaleReturns, Sale, SaleReturn } from "@/lib/offlineSaleService";
+import { getAllPurchases, getAllPurchaseReturns, Purchase, PurchaseReturn } from "@/lib/offlinePurchaseService";
 import { getAllExpenses, Expense } from "@/lib/offlineExpenseService";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 
 interface DayEntry {
   time: string;
-  type: "sale" | "purchase" | "expense";
+  type: "sale" | "purchase" | "expense" | "sale_return" | "purchase_return";
   description: string;
   amount: number;
   paid: number;
@@ -28,16 +28,16 @@ const DayBook = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, e] = await Promise.all([getAllSales(), getAllPurchases(), getAllExpenses()]);
-      setSales(s);
-      setPurchases(p);
-      setExpenses(e);
+      const [s, p, e, sr, pr] = await Promise.all([getAllSales(), getAllPurchases(), getAllExpenses(), getAllSaleReturns(), getAllPurchaseReturns()]);
+      setSales(s); setPurchases(p); setExpenses(e); setSaleReturns(sr); setPurchaseReturns(pr);
     } finally { setLoading(false); }
   }, []);
 
@@ -54,6 +54,8 @@ const DayBook = () => {
   const daySales = sales.filter(s => isSameDay(new Date(s.saleDate), currentDate));
   const dayPurchases = purchases.filter(p => isSameDay(new Date(p.purchaseDate), currentDate));
   const dayExpenses = expenses.filter(e => isSameDay(new Date(e.date), currentDate));
+  const daySaleReturns = saleReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
+  const dayPurchaseReturns = purchaseReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
 
   // Totals
   const totalSales = daySales.reduce((a, s) => a + s.totalAmount, 0);
@@ -61,14 +63,16 @@ const DayBook = () => {
   const totalPurchases = dayPurchases.reduce((a, p) => a + p.totalAmount, 0);
   const totalPurchasesPaid = dayPurchases.reduce((a, p) => a + p.paidAmount, 0);
   const totalExpenseAmt = dayExpenses.reduce((a, e) => a + e.amount, 0);
+  const totalSaleReturnAmt = daySaleReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalPurchaseReturnAmt = dayPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
 
   const totalCostOfSales = daySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
-  const grossProfit = totalSales - totalCostOfSales;
+  const grossProfit = (totalSales - totalSaleReturnAmt) - totalCostOfSales;
   const netProfit = grossProfit - totalExpenseAmt;
 
   const cashIn = totalSalesPaid;
-  const cashOut = totalPurchasesPaid + totalExpenseAmt;
-  const netCashFlow = cashIn - cashOut;
+  const cashOut = totalPurchasesPaid + totalExpenseAmt + totalSaleReturnAmt;
+  const netCashFlow = cashIn - cashOut + totalPurchaseReturnAmt;
 
   // Build entries
   const entries: DayEntry[] = [
@@ -96,17 +100,40 @@ const DayBook = () => {
       paid: e.amount,
       remaining: 0,
     })),
+    ...daySaleReturns.map(r => ({
+      time: format(new Date(r.returnDate), "HH:mm"),
+      type: "sale_return" as const,
+      description: `Sale Return — ${r.productName}`,
+      amount: r.returnAmount,
+      paid: r.returnAmount,
+      remaining: 0,
+    })),
+    ...dayPurchaseReturns.map(r => ({
+      time: format(new Date(r.returnDate), "HH:mm"),
+      type: "purchase_return" as const,
+      description: `Purchase Return — ${r.productName}`,
+      amount: r.returnAmount,
+      paid: r.returnAmount,
+      remaining: 0,
+    })),
   ].sort((a, b) => a.time.localeCompare(b.time));
 
   const typeIcon = (t: string) => {
     if (t === "sale") return <ShoppingCart className="h-3 w-3 text-emerald-600" />;
     if (t === "purchase") return <Package className="h-3 w-3 text-blue-600" />;
+    if (t === "sale_return") return <ArrowUpRight className="h-3 w-3 text-orange-600" />;
+    if (t === "purchase_return") return <ArrowDownRight className="h-3 w-3 text-purple-600" />;
     return <Receipt className="h-3 w-3 text-destructive" />;
   };
 
   const typeBadge = (t: string) => {
-    const colors: Record<string, string> = { sale: "bg-emerald-50 text-emerald-700", purchase: "bg-blue-50 text-blue-700", expense: "bg-red-50 text-red-700" };
-    return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[t] || ""} capitalize`}>{t}</span>;
+    const colors: Record<string, string> = { 
+      sale: "bg-emerald-50 text-emerald-700", purchase: "bg-blue-50 text-blue-700", 
+      expense: "bg-red-50 text-red-700", sale_return: "bg-orange-50 text-orange-700",
+      purchase_return: "bg-purple-50 text-purple-700",
+    };
+    const labels: Record<string, string> = { sale: "Sale", purchase: "Purchase", expense: "Expense", sale_return: "Sale Return", purchase_return: "Purch Return" };
+    return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[t] || ""}`}>{labels[t] || t}</span>;
   };
 
   return (

@@ -279,6 +279,11 @@ export const getSaleReturns = async (saleLocalId: string): Promise<SaleReturn[]>
   return db.getAllFromIndex("saleReturns", "by-sale", saleLocalId);
 };
 
+export const getAllSaleReturns = async (): Promise<SaleReturn[]> => {
+  const db = await getDB();
+  return (await db.getAll("saleReturns")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+};
+
 export const deleteSale = async (localId: string) => {
   const db = await getDB();
   const sale = await db.get("sales", localId);

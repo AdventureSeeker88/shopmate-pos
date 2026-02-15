@@ -379,6 +379,7 @@ const Purchases = () => {
         returnQuantity: returnQty, returnIMEIs: imeis,
         returnReason, returnDate: new Date().toISOString(),
         returnAmount: returnItem.costPrice * returnQty,
+        supplierLocalId: viewPurchase.supplierLocalId, supplierId: viewPurchase.supplierId,
       });
       toast({ title: "Return Processed" });
       setReturnOpen(false); setReturnItem(null); setReturnQty(1); setReturnIMEIs(""); setReturnReason("");
