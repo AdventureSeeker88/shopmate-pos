@@ -14,7 +14,7 @@ import {
   Search, ScanBarcode, X,
 } from "lucide-react";
 import {
-  getAllSales, deleteSale, addSaleReturn, getSaleReturns, startSaleAutoSync, Sale, SaleItem, SaleReturn,
+  getAllSales, deleteSale, addSaleReturn, getSaleReturns, getAllSaleReturns, startSaleAutoSync, Sale, SaleItem, SaleReturn,
 } from "@/lib/offlineSaleService";
 import SaleInvoice from "@/components/sales/SaleInvoice";
 import { format } from "date-fns";
@@ -32,6 +32,7 @@ const Sales = () => {
   const [scanning, setScanning] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
   // Return
+  const [allReturns, setAllReturns] = useState<SaleReturn[]>([]);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnItem, setReturnItem] = useState<SaleItem | null>(null);
   const [returnQty, setReturnQty] = useState(1);
@@ -40,7 +41,11 @@ const Sales = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setSales(await getAllSales()); } finally { setLoading(false); }
+    try { 
+      const [s, r] = await Promise.all([getAllSales(), getAllSaleReturns()]);
+      setSales(s);
+      setAllReturns(r);
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -194,6 +199,7 @@ const Sales = () => {
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Remaining</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Return</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -212,6 +218,15 @@ const Sales = () => {
                         <Badge variant={s.paymentStatus === "paid" ? "default" : s.paymentStatus === "partial" ? "secondary" : "destructive"} className="text-xs">
                           {s.paymentStatus}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {allReturns.filter(r => r.saleLocalId === s.localId).length > 0 ? (
+                          <Badge variant="destructive" className="text-[9px]">
+                            {allReturns.filter(r => r.saleLocalId === s.localId).length} return(s)
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">

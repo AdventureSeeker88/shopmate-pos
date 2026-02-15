@@ -10,8 +10,8 @@ import {
   DollarSign, AlertTriangle, ArrowUpRight, ArrowDownRight, Wifi, WifiOff,
   Search, ScanBarcode, X, Eye, User, Phone, MapPin, FileText,
 } from "lucide-react";
-import { getAllSales, Sale } from "@/lib/offlineSaleService";
-import { getAllPurchases, Purchase } from "@/lib/offlinePurchaseService";
+import { getAllSales, getAllSaleReturns, Sale, SaleReturn } from "@/lib/offlineSaleService";
+import { getAllPurchases, getAllPurchaseReturns, Purchase, PurchaseReturn } from "@/lib/offlinePurchaseService";
 import { getAllExpenses, Expense } from "@/lib/offlineExpenseService";
 import { getAllProducts, Product } from "@/lib/offlineProductService";
 import { getAllCustomers, Customer } from "@/lib/offlineCustomerService";
@@ -27,6 +27,8 @@ const Dashboard = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [online, setOnline] = useState(navigator.onLine);
   const [imeiQuery, setImeiQuery] = useState("");
   const [imeiResults, setImeiResults] = useState<{ type: "sale" | "purchase"; record: Sale | Purchase; item: any; imei: string }[]>([]);
@@ -35,10 +37,12 @@ const Dashboard = () => {
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const [s, p, e, pr, cu] = await Promise.all([
+    const [s, p, e, pr, cu, sr, pret] = await Promise.all([
       getAllSales(), getAllPurchases(), getAllExpenses(), getAllProducts(), getAllCustomers(),
+      getAllSaleReturns(), getAllPurchaseReturns(),
     ]);
     setSales(s); setPurchases(p); setExpenses(e); setProducts(pr); setCustomers(cu);
+    setSaleReturns(sr); setPurchaseReturns(pret);
   };
 
   useEffect(() => {
@@ -59,12 +63,17 @@ const Dashboard = () => {
   const monthRevenue = monthSales.reduce((a, s) => a + s.totalAmount, 0);
 
   const todayCost = todaySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
-  const todayProfit = todayRevenue - todayCost;
+  const todaySaleReturnAmt = saleReturns.filter(r => isToday(new Date(r.returnDate))).reduce((a, r) => a + r.returnAmount, 0);
+  const todaySaleReturnCost = saleReturns.filter(r => isToday(new Date(r.returnDate))).reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
+  const todayProfit = (todayRevenue - todaySaleReturnAmt) - (todayCost - todaySaleReturnCost);
 
   const totalPurchases = purchases.reduce((a, p) => a + p.totalAmount, 0);
+  const totalPurchaseReturnAmt = purchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
   const totalSalesAmount = sales.reduce((a, s) => a + s.totalAmount, 0);
+  const totalSaleReturnAmt = saleReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalSaleReturnCost = saleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
   const totalCost = sales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
-  const grossProfit = totalSalesAmount - totalCost;
+  const grossProfit = (totalSalesAmount - totalSaleReturnAmt) - (totalCost - totalSaleReturnCost);
   const totalExpenses = expenses.reduce((a, e) => a + e.amount, 0);
   const netProfit = grossProfit - totalExpenses;
 

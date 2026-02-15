@@ -323,6 +323,48 @@ const Reports = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Sale Returns Summary */}
+          {filteredSaleReturns.length > 0 && (
+            <Card className="mt-3 border-orange-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-orange-700">Sale Returns — {periodLabel}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[10px]">Date</TableHead>
+                      <TableHead className="text-[10px]">Product</TableHead>
+                      <TableHead className="text-[10px] text-right">Qty</TableHead>
+                      <TableHead className="text-[10px] text-right">Amount</TableHead>
+                      <TableHead className="text-[10px] text-right">Margin Lost</TableHead>
+                      <TableHead className="text-[10px]">Reason</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSaleReturns.map(r => (
+                      <TableRow key={r.localId}>
+                        <TableCell className="text-[10px]">{format(new Date(r.returnDate), "dd/MM/yy")}</TableCell>
+                        <TableCell className="text-[10px]">{r.productName}</TableCell>
+                        <TableCell className="text-[10px] text-right">{r.returnQuantity}</TableCell>
+                        <TableCell className="text-[10px] text-right text-destructive font-semibold">Rs. {r.returnAmount.toLocaleString()}</TableCell>
+                        <TableCell className="text-[10px] text-right text-orange-600">Rs. {(r.returnAmount - (r.costPrice || 0) * r.returnQuantity).toLocaleString()}</TableCell>
+                        <TableCell className="text-[10px]">{r.returnReason || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-muted/50 font-bold">
+                      <TableCell colSpan={2} className="text-xs">Total ({filteredSaleReturns.length} returns)</TableCell>
+                      <TableCell className="text-xs text-right">{filteredSaleReturns.reduce((a, r) => a + r.returnQuantity, 0)}</TableCell>
+                      <TableCell className="text-xs text-right text-destructive">Rs. {totalSaleReturnAmt.toLocaleString()}</TableCell>
+                      <TableCell className="text-xs text-right text-orange-600">Rs. {(totalSaleReturnAmt - totalSaleReturnCost).toLocaleString()}</TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Purchase Report */}
@@ -334,6 +376,7 @@ const Reports = () => {
                 <div className="flex gap-3 text-xs">
                   <span>Paid: <strong className="text-emerald-600">Rs. {totalPurchasesPaid.toLocaleString()}</strong></span>
                   <span>Pending: <strong className="text-destructive">Rs. {(totalPurchasesAmt - totalPurchasesPaid).toLocaleString()}</strong></span>
+                  {totalPurchaseReturnAmt > 0 && <span>Returns: <strong className="text-orange-600">Rs. {totalPurchaseReturnAmt.toLocaleString()}</strong></span>}
                 </div>
               </div>
             </CardHeader>
@@ -383,6 +426,45 @@ const Reports = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Purchase Returns Summary */}
+          {filteredPurchaseReturns.length > 0 && (
+            <Card className="mt-3 border-purple-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-purple-700">Purchase Returns — {periodLabel}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[10px]">Date</TableHead>
+                      <TableHead className="text-[10px]">Product</TableHead>
+                      <TableHead className="text-[10px] text-right">Qty</TableHead>
+                      <TableHead className="text-[10px] text-right">Amount</TableHead>
+                      <TableHead className="text-[10px]">Reason</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPurchaseReturns.map(r => (
+                      <TableRow key={r.localId}>
+                        <TableCell className="text-[10px]">{format(new Date(r.returnDate), "dd/MM/yy")}</TableCell>
+                        <TableCell className="text-[10px]">{r.productName}</TableCell>
+                        <TableCell className="text-[10px] text-right">{r.returnQuantity}</TableCell>
+                        <TableCell className="text-[10px] text-right text-purple-600 font-semibold">Rs. {r.returnAmount.toLocaleString()}</TableCell>
+                        <TableCell className="text-[10px]">{r.returnReason || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-muted/50 font-bold">
+                      <TableCell colSpan={2} className="text-xs">Total ({filteredPurchaseReturns.length} returns)</TableCell>
+                      <TableCell className="text-xs text-right">{filteredPurchaseReturns.reduce((a, r) => a + r.returnQuantity, 0)}</TableCell>
+                      <TableCell className="text-xs text-right text-purple-600">Rs. {totalPurchaseReturnAmt.toLocaleString()}</TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Item Wise Report */}

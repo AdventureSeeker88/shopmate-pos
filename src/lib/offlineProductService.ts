@@ -200,7 +200,26 @@ const pullFromFirebase = async () => {
 export const getAllProducts = async (): Promise<Product[]> => {
   const db = await getDB();
   pullFromFirebase().catch(console.warn);
-  return (await db.getAll("products")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const all = (await db.getAll("products")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // Deduplicate by product name (keep the one with id or latest)
+  const seen = new Map<string, Product>();
+  for (const p of all) {
+    const key = p.productName.toLowerCase().trim();
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, p);
+    } else {
+      // Merge: keep the one with firebase id, combine stock
+      if (p.id && !existing.id) {
+        p.currentStock = Math.max(p.currentStock, existing.currentStock);
+        seen.set(key, p);
+      } else if (!p.id && existing.id) {
+        existing.currentStock = Math.max(existing.currentStock, p.currentStock);
+      }
+      // If both have ids or both don't, keep existing (first one)
+    }
+  }
+  return Array.from(seen.values());
 };
 
 export const getProductByLocalId = async (localId: string): Promise<Product | undefined> => {
