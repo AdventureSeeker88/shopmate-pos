@@ -281,7 +281,12 @@ const Sales = () => {
                       <TableCell className="text-right font-mono">Rs. {item.salePrice.toLocaleString()}</TableCell>
                       <TableCell className="text-right font-mono">Rs. {item.total.toLocaleString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => { setReturnItem(item); setReturnOpen(true); }}>
+                        <Button variant="ghost" size="sm" onClick={() => { 
+                          setReturnItem(item); 
+                          setReturnIMEIs(item.imeiNumbers?.join("\n") || "");
+                          setReturnQty(item.quantity);
+                          setReturnOpen(true); 
+                        }}>
                           <Undo2 className="h-3 w-3 mr-1" /> Return
                         </Button>
                       </TableCell>

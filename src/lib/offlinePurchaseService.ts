@@ -203,6 +203,7 @@ export const addPurchaseReturn = async (data: {
   purchaseLocalId: string; purchaseId: string; productLocalId: string;
   productName: string; returnQuantity: number; returnIMEIs: string[];
   returnReason: string; returnDate: string; returnAmount: number;
+  supplierLocalId?: string; supplierId?: string;
 }) => {
   const db = await getDB();
   const localId = generateLocalId();
@@ -225,6 +226,28 @@ export const addPurchaseReturn = async (data: {
 
   // Decrease stock
   await updateStock(data.productLocalId, -data.returnQuantity);
+
+  // Add supplier ledger entry for return
+  if (data.supplierLocalId) {
+    try {
+      const supplierLedgerDB = await openDB("supplier-management", 1);
+      const ledgerLocalId = generateLocalId();
+      const ledgerEntry = {
+        id: "", localId: ledgerLocalId,
+        supplierId: data.supplierId || "", supplierLocalId: data.supplierLocalId,
+        date: data.returnDate, type: "purchase_return" as any,
+        description: `Purchase Return - ${data.productName}`,
+        amount: data.returnAmount, createdAt: new Date().toISOString(), syncStatus: "pending" as const,
+      };
+      await supplierLedgerDB.put("supplierLedger", ledgerEntry);
+    } catch (e) { console.warn("Supplier ledger return entry failed:", e); }
+
+    // Recalculate supplier balance
+    try {
+      const { recalculateBalanceLocal } = await import("./offlineSupplierService");
+      await recalculateBalanceLocal(data.supplierLocalId);
+    } catch (e) { console.warn("Supplier balance recalc failed:", e); }
+  }
 
   return localId;
 };
@@ -274,6 +297,11 @@ export const getAllPurchases = async (): Promise<Purchase[]> => {
 export const getPurchaseReturns = async (purchaseLocalId: string): Promise<PurchaseReturn[]> => {
   const db = await getDB();
   return db.getAllFromIndex("purchaseReturns", "by-purchase", purchaseLocalId);
+};
+
+export const getAllPurchaseReturns = async (): Promise<PurchaseReturn[]> => {
+  const db = await getDB();
+  return (await db.getAll("purchaseReturns")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 
 export const deletePurchase = async (localId: string) => {
