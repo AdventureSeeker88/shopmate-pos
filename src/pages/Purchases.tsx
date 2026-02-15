@@ -17,8 +17,8 @@ import {
   ScanBarcode, Smartphone, Package, CreditCard, AlertCircle, Printer, Users, UserPlus,
 } from "lucide-react";
 import {
-  getAllPurchases, addPurchase, deletePurchase, addPurchaseReturn,
-  startPurchaseAutoSync, Purchase, PurchaseItem,
+  getAllPurchases, addPurchase, deletePurchase, addPurchaseReturn, getAllPurchaseReturns,
+  startPurchaseAutoSync, Purchase, PurchaseItem, PurchaseReturn,
 } from "@/lib/offlinePurchaseService";
 import PurchaseInvoice from "@/components/purchases/PurchaseInvoice";
 import { getAllProducts, Product, checkIMEIExists, addProduct, addIMEI } from "@/lib/offlineProductService";
@@ -1036,6 +1036,7 @@ const Purchases = () => {
                   <TableRow>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
@@ -1057,9 +1058,15 @@ const Purchases = () => {
                         )}
                       </TableCell>
                       <TableCell>{item.quantity} <span className="text-xs text-muted-foreground">({item.unitType})</span></TableCell>
+                      <TableCell className="text-right font-mono">Rs. {item.costPrice.toLocaleString()}</TableCell>
                       <TableCell className="text-right font-mono">Rs. {item.total.toLocaleString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => { setReturnItem(item); setReturnOpen(true); }}>
+                        <Button variant="ghost" size="sm" onClick={() => { 
+                          setReturnItem(item); 
+                          setReturnIMEIs(item.imeiNumbers?.join("\n") || "");
+                          setReturnQty(item.quantity);
+                          setReturnOpen(true); 
+                        }}>
                           <Undo2 className="h-3 w-3 mr-1" /> Return
                         </Button>
                       </TableCell>
@@ -1067,6 +1074,8 @@ const Purchases = () => {
                   ))}
                 </TableBody>
               </Table>
+              {/* Purchase Return History */}
+              <PurchaseReturnHistory purchaseLocalId={viewPurchase.localId} />
             </div>
           )}
         </DialogContent>
@@ -1148,6 +1157,38 @@ const Purchases = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+};
+
+// Purchase Return History sub-component
+const PurchaseReturnHistory = ({ purchaseLocalId }: { purchaseLocalId: string }) => {
+  const [returns, setReturns] = useState<PurchaseReturn[]>([]);
+  useEffect(() => { 
+    getAllPurchaseReturns().then(all => setReturns(all.filter(r => r.purchaseLocalId === purchaseLocalId))); 
+  }, [purchaseLocalId]);
+  
+  if (returns.length === 0) return null;
+  
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-destructive flex items-center gap-1">
+        <Undo2 className="h-3 w-3" /> Returns ({returns.length})
+      </h4>
+      {returns.map(r => (
+        <div key={r.localId} className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5 text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="font-medium">{r.productName}</span>
+            <span className="font-bold text-destructive">-Rs. {r.returnAmount.toLocaleString()}</span>
+          </div>
+          <div className="flex gap-3 text-muted-foreground">
+            <span>Qty: {r.returnQuantity}</span>
+            <span>{format(new Date(r.returnDate), "dd/MM/yy")}</span>
+          </div>
+          {r.returnReason && <p className="text-muted-foreground">Reason: {r.returnReason}</p>}
+          {r.returnIMEIs?.length > 0 && <p className="font-mono text-muted-foreground">IMEIs: {r.returnIMEIs.join(", ")}</p>}
+        </div>
+      ))}
     </div>
   );
 };

@@ -49,6 +49,7 @@ export interface SaleReturn {
   returnReason: string;
   returnDate: string;
   returnAmount: number;
+  costPrice: number;
   createdAt: string;
   syncStatus: "pending" | "synced";
 }
@@ -172,7 +173,7 @@ export const addSaleReturn = async (data: {
   saleLocalId: string; saleId: string; productLocalId: string;
   productName: string; returnQuantity: number; returnIMEIs: string[];
   returnReason: string; returnDate: string; returnAmount: number;
-  customerLocalId: string; customerId: string;
+  costPrice: number; customerLocalId: string; customerId: string;
 }) => {
   const db = await getDB();
   const localId = generateLocalId();
@@ -181,7 +182,8 @@ export const addSaleReturn = async (data: {
     productLocalId: data.productLocalId, productName: data.productName,
     returnQuantity: data.returnQuantity, returnIMEIs: data.returnIMEIs,
     returnReason: data.returnReason, returnDate: data.returnDate,
-    returnAmount: data.returnAmount, createdAt: new Date().toISOString(), syncStatus: "pending",
+    returnAmount: data.returnAmount, costPrice: data.costPrice,
+    createdAt: new Date().toISOString(), syncStatus: "pending",
   };
 
   // Save to IndexedDB FIRST (instant)

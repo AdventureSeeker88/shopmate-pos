@@ -78,8 +78,9 @@ const Reports = () => {
   const totalSalesRemaining = filteredSales.reduce((a, s) => a + s.remainingAmount, 0);
   const totalCost = filteredSales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
   const totalSaleReturnAmt = filteredSaleReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalSaleReturnCost = filteredSaleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
   const totalPurchaseReturnAmt = filteredPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
-  const totalMargin = (totalSalesAmt - totalSaleReturnAmt) - totalCost;
+  const totalMargin = (totalSalesAmt - totalSaleReturnAmt) - (totalCost - totalSaleReturnCost);
   const totalPurchasesAmt = filteredPurchases.reduce((a, p) => a + p.totalAmount, 0) - totalPurchaseReturnAmt;
   const totalPurchasesPaid = filteredPurchases.reduce((a, p) => a + p.paidAmount, 0);
   const totalExpensesAmt = filteredExpenses.reduce((a, e) => a + e.amount, 0);

@@ -106,6 +106,13 @@ const SaleInvoice = ({ open, onOpenChange, sale }: Props) => {
           </table>
 
           <div className="summary">
+            <div className="summary-row"><span>Subtotal:</span><span className="mono">Rs. {sale.items.reduce((a, i) => a + i.total, 0).toLocaleString()}</span></div>
+            {sale.totalAmount !== sale.items.reduce((a, i) => a + i.total, 0) && (
+              <div className="summary-row">
+                <span>{sale.totalAmount > sale.items.reduce((a, i) => a + i.total, 0) ? "Previous Balance:" : "Receivable Adjusted:"}</span>
+                <span className="mono">Rs. {Math.abs(sale.totalAmount - sale.items.reduce((a, i) => a + i.total, 0)).toLocaleString()}</span>
+              </div>
+            )}
             <div className="summary-row"><span>Total Amount:</span><span className="mono">Rs. {sale.totalAmount.toLocaleString()}</span></div>
             <div className="summary-row"><span>Paid Amount:</span><span className="mono">Rs. {sale.paidAmount.toLocaleString()}</span></div>
             {sale.remainingAmount > 0 && (
