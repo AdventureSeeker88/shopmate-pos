@@ -302,6 +302,11 @@ export const syncCustomers = async () => {
 };
 
 let syncListenerAdded = false;
+export const getAllCustomerLedgerEntries = async (): Promise<CustomerLedgerEntry[]> => {
+  const db = await getDB();
+  return db.getAll("customerLedger");
+};
+
 export const startCustomerAutoSync = () => {
   if (syncListenerAdded) return;
   syncListenerAdded = true;
