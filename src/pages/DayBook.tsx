@@ -80,7 +80,8 @@ const DayBook = () => {
   const daySaleReturns = saleReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
   const dayPurchaseReturns = purchaseReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
   // Exclude sale-time auto-payments (description starts with "Payment received") to avoid double counting with sale paidAmount
-  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate) && !l.description.startsWith("Payment received"));
+  // Exclude sale-time auto-payments (description starts with "Payment on") to avoid double counting with sale paidAmount
+  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate) && !l.description.startsWith("Payment on "));
   const daySupplierPayments = supplierPayments.filter(sp => isSameDay(new Date(sp.date), currentDate));
 
   // Totals
