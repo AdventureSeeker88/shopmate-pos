@@ -280,10 +280,6 @@ const Products = () => {
                   <Input type="number" placeholder="0" value={form.salePrice || ""} onChange={e => setForm(f => ({ ...f, salePrice: Number(e.target.value) }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Current Stock</Label>
-                  <Input type="number" placeholder="0" value={form.currentStock || ""} onChange={e => setForm(f => ({ ...f, currentStock: Number(e.target.value) }))} />
-                </div>
-                <div className="space-y-2">
                   <Label>Stock Alert Qty</Label>
                   <Input type="number" placeholder="5" value={form.stockAlertQty || ""} onChange={e => setForm(f => ({ ...f, stockAlertQty: Number(e.target.value) }))} />
                 </div>
