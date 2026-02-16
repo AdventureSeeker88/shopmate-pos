@@ -37,8 +37,8 @@ const DayBook = () => {
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [customerLedger, setCustomerLedger] = useState<CustomerLedgerEntry[]>([]);
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
-  const [customerMap, setCustomerMap] = useState<Record<string, string>>({});
-  const [supplierMap, setSupplierMap] = useState<Record<string, string>>({});
+  const [customerMap, setCustomerMap] = useState<Record<string, { name: string; balanceType: string }>>({});
+  const [supplierMap, setSupplierMap] = useState<Record<string, { name: string; balanceType: string }>>({});
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
   const [shopName, setShopName] = useState("Shop");
@@ -54,11 +54,11 @@ const DayBook = () => {
       ]);
       setSales(s); setPurchases(p); setExpenses(e); setSaleReturns(sr); setPurchaseReturns(pr);
       setCustomerLedger(cl); setSupplierPayments(sp);
-      const cm: Record<string, string> = {};
-      custs.forEach(c => { cm[c.localId] = c.name; });
+      const cm: Record<string, { name: string; balanceType: string }> = {};
+      custs.forEach(c => { cm[c.localId] = { name: c.name, balanceType: c.balanceType }; });
       setCustomerMap(cm);
-      const sm: Record<string, string> = {};
-      supps.forEach(s => { sm[s.localId] = s.name; });
+      const sm: Record<string, { name: string; balanceType: string }> = {};
+      supps.forEach(s => { sm[s.localId] = { name: s.name, balanceType: s.balanceType }; });
       setSupplierMap(sm);
       setShopName(settings.shopName || "Shop");
     } finally { setLoading(false); }
@@ -79,7 +79,8 @@ const DayBook = () => {
   const dayExpenses = expenses.filter(e => isSameDay(new Date(e.date), currentDate));
   const daySaleReturns = saleReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
   const dayPurchaseReturns = purchaseReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
-  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate));
+  // Exclude sale-time auto-payments (description starts with "Payment received") to avoid double counting with sale paidAmount
+  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate) && !l.description.startsWith("Payment received"));
   const daySupplierPayments = supplierPayments.filter(sp => isSameDay(new Date(sp.date), currentDate));
 
   // Totals
@@ -90,16 +91,18 @@ const DayBook = () => {
   const totalExpenseAmt = dayExpenses.reduce((a, e) => a + e.amount, 0);
   const totalSaleReturnAmt = daySaleReturns.reduce((a, r) => a + r.returnAmount, 0);
   const totalPurchaseReturnAmt = dayPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
-  const totalCustomerPaymentsReceived = dayCustomerPayments.reduce((a, p) => a + p.amount, 0);
-  const totalSupplierPaymentsPaid = daySupplierPayments.reduce((a, p) => a + p.amount, 0);
+  const totalSupplierPaymentsPaid = daySupplierPayments.filter(p => supplierMap[p.supplierLocalId]?.balanceType === "receivable").reduce((a, p) => a + p.amount, 0);
+  const totalSupplierPaymentsReceived = daySupplierPayments.filter(p => supplierMap[p.supplierLocalId]?.balanceType === "payable").reduce((a, p) => a + p.amount, 0);
+  const totalCustomerPaymentsReceived = dayCustomerPayments.filter(p => customerMap[p.customerLocalId]?.balanceType === "payable").reduce((a, p) => a + p.amount, 0);
+  const totalCustomerPaymentsPaid = dayCustomerPayments.filter(p => customerMap[p.customerLocalId]?.balanceType === "receivable").reduce((a, p) => a + p.amount, 0);
 
   const totalCostOfSales = daySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
   const returnCost = daySaleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
   const grossProfit = (totalSales - totalSaleReturnAmt) - (totalCostOfSales - returnCost);
   const netProfit = grossProfit - totalExpenseAmt;
 
-  const cashIn = totalSalesPaid + totalCustomerPaymentsReceived + totalPurchaseReturnAmt;
-  const cashOut = totalPurchasesPaid + totalExpenseAmt + totalSaleReturnAmt + totalSupplierPaymentsPaid;
+  const cashIn = totalSalesPaid + totalCustomerPaymentsReceived + totalPurchaseReturnAmt + totalSupplierPaymentsReceived;
+  const cashOut = totalPurchasesPaid + totalExpenseAmt + totalSaleReturnAmt + totalSupplierPaymentsPaid + totalCustomerPaymentsPaid;
   const netCashFlow = cashIn - cashOut;
 
   // Build entries
@@ -139,20 +142,32 @@ const DayBook = () => {
       amount: r.returnAmount, paid: r.returnAmount, remaining: 0,
       cashFlow: "in" as const,
     })),
-    ...dayCustomerPayments.map(p => ({
-      time: format(new Date(p.date), "HH:mm"),
-      type: "customer_payment" as const,
-      description: `Received from ${customerMap[p.customerLocalId] || "Customer"} — ${p.description}`,
-      amount: p.amount, paid: p.amount, remaining: 0,
-      cashFlow: "in" as const,
-    })),
-    ...daySupplierPayments.map(p => ({
-      time: format(new Date(p.date), "HH:mm"),
-      type: "supplier_payment" as const,
-      description: `Paid to ${supplierMap[p.supplierLocalId] || "Supplier"} — ${p.note || "Payment"}`,
-      amount: p.amount, paid: p.amount, remaining: 0,
-      cashFlow: "out" as const,
-    })),
+    ...dayCustomerPayments.map(p => {
+      const cust = customerMap[p.customerLocalId];
+      const isReceive = cust?.balanceType === "payable"; // customer owes shop → cash in
+      return {
+        time: format(new Date(p.date), "HH:mm"),
+        type: "customer_payment" as const,
+        description: isReceive
+          ? `Received from ${cust?.name || "Customer"} — ${p.description}`
+          : `Paid to ${cust?.name || "Customer"} — ${p.description}`,
+        amount: p.amount, paid: p.amount, remaining: 0,
+        cashFlow: (isReceive ? "in" : "out") as "in" | "out",
+      };
+    }),
+    ...daySupplierPayments.map(p => {
+      const supp = supplierMap[p.supplierLocalId];
+      const isPay = supp?.balanceType === "receivable"; // shop owes supplier → cash out
+      return {
+        time: format(new Date(p.date), "HH:mm"),
+        type: "supplier_payment" as const,
+        description: isPay
+          ? `Paid to ${supp?.name || "Supplier"} — ${p.note || "Payment"}`
+          : `Received from ${supp?.name || "Supplier"} — ${p.note || "Payment"}`,
+        amount: p.amount, paid: p.amount, remaining: 0,
+        cashFlow: (isPay ? "out" : "in") as "in" | "out",
+      };
+    }),
   ].sort((a, b) => a.time.localeCompare(b.time));
 
   const typeBadge = (t: string) => {
@@ -211,7 +226,9 @@ const DayBook = () => {
         <div><div class="label">Cash Out</div><div class="value red">Rs. ${cashOut.toLocaleString()}</div></div>
         <div><div class="label">Net Cash Flow</div><div class="value ${netCashFlow >= 0 ? 'green' : 'red'}">Rs. ${Math.abs(netCashFlow).toLocaleString()}</div></div>
         <div><div class="label">Cust. Received</div><div class="value green">Rs. ${totalCustomerPaymentsReceived.toLocaleString()}</div></div>
+        <div><div class="label">Cust. Paid</div><div class="value red">Rs. ${totalCustomerPaymentsPaid.toLocaleString()}</div></div>
         <div><div class="label">Supp. Paid</div><div class="value red">Rs. ${totalSupplierPaymentsPaid.toLocaleString()}</div></div>
+        <div><div class="label">Supp. Received</div><div class="value green">Rs. ${totalSupplierPaymentsReceived.toLocaleString()}</div></div>
       </div>
       <table>
         <thead><tr><th>Time</th><th>Type</th><th>Description</th><th class="right">Amount</th><th class="right">Cash In</th><th class="right">Cash Out</th></tr></thead>
@@ -346,8 +363,18 @@ const DayBook = () => {
             </div>
             <Separator orientation="vertical" className="h-8" />
             <div>
+              <p className="text-[10px] text-muted-foreground">Cust. Paid</p>
+              <p className="text-sm font-bold text-destructive">Rs. {totalCustomerPaymentsPaid.toLocaleString()}</p>
+            </div>
+            <Separator orientation="vertical" className="h-8" />
+            <div>
               <p className="text-[10px] text-muted-foreground">Supp. Paid</p>
               <p className="text-sm font-bold text-indigo-600">Rs. {totalSupplierPaymentsPaid.toLocaleString()}</p>
+            </div>
+            <Separator orientation="vertical" className="h-8" />
+            <div>
+              <p className="text-[10px] text-muted-foreground">Supp. Received</p>
+              <p className="text-sm font-bold text-teal-600">Rs. {totalSupplierPaymentsReceived.toLocaleString()}</p>
             </div>
           </div>
           <Badge variant="outline" className="text-xs">{entries.length} transactions</Badge>
