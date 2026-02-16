@@ -79,9 +79,13 @@ const DayBook = () => {
   const dayExpenses = expenses.filter(e => isSameDay(new Date(e.date), currentDate));
   const daySaleReturns = saleReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
   const dayPurchaseReturns = purchaseReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
-  // Exclude sale-time auto-payments (description starts with "Payment received") to avoid double counting with sale paidAmount
-  // Exclude sale-time auto-payments (description starts with "Payment on") to avoid double counting with sale paidAmount
-  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate) && !l.description.startsWith("Payment on "));
+  // Only show standalone customer payments (previous due payments) - exclude sale-time auto-payments to avoid double counting
+  const dayCustomerPayments = customerLedger.filter(l => 
+    l.type === "payment" && 
+    isSameDay(new Date(l.date), currentDate) && 
+    !l.description.startsWith("Payment on ") &&
+    !l.description.startsWith("Payment received")
+  );
   const daySupplierPayments = supplierPayments.filter(sp => isSameDay(new Date(sp.date), currentDate));
 
   // Totals
@@ -94,8 +98,9 @@ const DayBook = () => {
   const totalPurchaseReturnAmt = dayPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
   const totalSupplierPaymentsPaid = daySupplierPayments.filter(p => supplierMap[p.supplierLocalId]?.balanceType === "receivable").reduce((a, p) => a + p.amount, 0);
   const totalSupplierPaymentsReceived = daySupplierPayments.filter(p => supplierMap[p.supplierLocalId]?.balanceType === "payable").reduce((a, p) => a + p.amount, 0);
-  const totalCustomerPaymentsReceived = dayCustomerPayments.filter(p => customerMap[p.customerLocalId]?.balanceType === "payable").reduce((a, p) => a + p.amount, 0);
-  const totalCustomerPaymentsPaid = dayCustomerPayments.filter(p => customerMap[p.customerLocalId]?.balanceType === "receivable").reduce((a, p) => a + p.amount, 0);
+  // All customer payments are now payable only (customer pays to shop = cash in)
+  const totalCustomerPaymentsReceived = dayCustomerPayments.reduce((a, p) => a + p.amount, 0);
+  const totalCustomerPaymentsPaid = 0;
 
   const totalCostOfSales = daySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
   const returnCost = daySaleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
@@ -145,15 +150,12 @@ const DayBook = () => {
     })),
     ...dayCustomerPayments.map(p => {
       const cust = customerMap[p.customerLocalId];
-      const isReceive = cust?.balanceType === "payable"; // customer owes shop → cash in
       return {
         time: format(new Date(p.date), "HH:mm"),
         type: "customer_payment" as const,
-        description: isReceive
-          ? `Received from ${cust?.name || "Customer"} — ${p.description}`
-          : `Paid to ${cust?.name || "Customer"} — ${p.description}`,
+        description: `Customer Paid — ${cust?.name || "Customer"} — ${p.description}`,
         amount: p.amount, paid: p.amount, remaining: 0,
-        cashFlow: (isReceive ? "in" : "out") as "in" | "out",
+        cashFlow: "in" as "in" | "out",
       };
     }),
     ...daySupplierPayments.map(p => {

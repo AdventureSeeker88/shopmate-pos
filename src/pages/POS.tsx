@@ -279,8 +279,7 @@ const POS = () => {
   const totalAmount = cart.reduce((s, c) => s + c.total, 0);
   const totalMargin = cart.reduce((s, c) => s + c.margin, 0);
   const selectedCustomerData = customers.find(c => c.localId === selectedCustomer);
-  const isReceivable = selectedCustomerData?.balanceType === "receivable";
-  const grandTotal = isReceivable ? totalAmount - balanceAdjust : totalAmount + balanceAdjust;
+  const grandTotal = totalAmount + balanceAdjust;
   const remainingAmount = Math.max(0, grandTotal - paidAmount);
 
   const handleAddNewCustomer = async () => {
@@ -526,19 +525,6 @@ const POS = () => {
                         onClick={() => setBalanceAdjust(selectedCustomerData.currentBalance)}>Full</Button>
                     </div>
                   )}
-                  {selectedCustomerData.currentBalance > 0 && selectedCustomerData.balanceType === "receivable" && cart.length > 0 && (
-                    <div className="flex items-center gap-1 ml-auto">
-                      <span className="text-[9px] text-emerald-600">Receivable:</span>
-                      <Input type="number" min={0} max={selectedCustomerData.currentBalance}
-                        className="h-5 text-[10px] w-16 px-1" placeholder="Deduct"
-                        value={balanceAdjust || ""} onChange={e => {
-                          const v = Math.min(Number(e.target.value) || 0, selectedCustomerData.currentBalance);
-                          setBalanceAdjust(v);
-                        }} />
-                      <Button type="button" size="sm" variant="outline" className="h-5 text-[9px] px-1.5"
-                        onClick={() => setBalanceAdjust(selectedCustomerData.currentBalance)}>Full</Button>
-                    </div>
-                  )}
                   <Button variant="ghost" size="icon" className="h-4 w-4 shrink-0 ml-auto" onClick={() => { setSelectedCustomer(""); setBalanceAdjust(0); }}>
                     <X className="h-3 w-3" />
                   </Button>
@@ -612,9 +598,9 @@ const POS = () => {
                   <span className="text-sm font-semibold">Rs. {totalAmount.toLocaleString()}</span>
                 </div>
                 {balanceAdjust > 0 && (
-                  <div className={`flex justify-between items-baseline ${isReceivable ? "text-emerald-600" : "text-destructive"}`}>
-                    <span className="text-xs">{isReceivable ? "Receivable Deduct" : "Previous Balance"}</span>
-                    <span className="text-sm font-semibold">{isReceivable ? "−" : "+"} Rs. {balanceAdjust.toLocaleString()}</span>
+                  <div className="flex justify-between items-baseline text-destructive">
+                    <span className="text-xs">Previous Balance</span>
+                    <span className="text-sm font-semibold">+ Rs. {balanceAdjust.toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-baseline">

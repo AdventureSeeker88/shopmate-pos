@@ -232,16 +232,14 @@ export const recalculateCustomerBalance = async (customerLocalId: string) => {
   let balance = customer.openingBalance;
   for (const e of ledger) {
     if (e.type === "sale") balance += e.amount;
-    else if (e.type === "payment") {
-      // Payment always clears balance toward zero
-      if (balance >= 0) balance -= e.amount; // reduce payable (customer owes less)
-      else balance += e.amount; // reduce receivable (shop owes less)
-    }
+    else if (e.type === "payment") balance -= e.amount;
     else if (e.type === "sale_return") balance -= e.amount;
   }
+  // Balance is always payable (customer owes shop) - never negative
+  const finalBalance = Math.max(0, balance);
   const updated: Customer = {
-    ...customer, currentBalance: Math.abs(balance),
-    balanceType: balance >= 0 ? "payable" : "receivable", syncStatus: "pending",
+    ...customer, currentBalance: finalBalance,
+    balanceType: "payable", syncStatus: "pending",
   };
 
   // Save to IndexedDB FIRST (instant)

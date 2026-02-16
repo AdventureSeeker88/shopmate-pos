@@ -251,8 +251,8 @@ const Purchases = () => {
 
       setItems(prev => [...prev, {
         productLocalId: newProductLocalId, productName,
-        quantity: imeis.length, unitType: itemUnit, costPrice: itemCost, salePrice: itemSale,
-        total: itemCost * imeis.length, imeiNumbers: imeis,
+        quantity: 1, unitType: itemUnit, costPrice: itemCost, salePrice: itemSale,
+        total: itemCost * 1, imeiNumbers: imeis,
         variationStorage: manualStorage, variationColor: manualColor,
       }]);
       setAddItemOpen(false);
