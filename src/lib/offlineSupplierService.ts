@@ -412,3 +412,13 @@ export const startAutoSync = () => {
     syncAll().catch(console.error);
   }
 };
+
+export const getAllSupplierLedgerEntries = async (): Promise<SupplierLedgerEntry[]> => {
+  const db = await getDB();
+  return db.getAll("supplierLedger");
+};
+
+export const getAllSupplierPayments = async (): Promise<SupplierPayment[]> => {
+  const db = await getDB();
+  return db.getAll("supplierPayments");
+};

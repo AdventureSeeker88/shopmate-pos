@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,21 +6,26 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import {
-  Calendar, TrendingUp, TrendingDown, DollarSign, ChevronLeft, ChevronRight,
+  Calendar, TrendingUp, TrendingDown, ChevronLeft, ChevronRight,
   ShoppingCart, Package, Receipt, ArrowDownRight, ArrowUpRight, Wifi, WifiOff,
+  Download, Banknote,
 } from "lucide-react";
 import { getAllSales, getAllSaleReturns, Sale, SaleReturn } from "@/lib/offlineSaleService";
 import { getAllPurchases, getAllPurchaseReturns, Purchase, PurchaseReturn } from "@/lib/offlinePurchaseService";
 import { getAllExpenses, Expense } from "@/lib/offlineExpenseService";
-import { format, addDays, subDays, isSameDay } from "date-fns";
+import { getAllCustomerLedgerEntries, CustomerLedgerEntry, getAllCustomers } from "@/lib/offlineCustomerService";
+import { getAllSupplierPayments, SupplierPayment, getAllSuppliers } from "@/lib/offlineSupplierService";
+import { format, subDays, addDays, isSameDay } from "date-fns";
+import { getShopSettings } from "@/lib/shopSettings";
 
 interface DayEntry {
   time: string;
-  type: "sale" | "purchase" | "expense" | "sale_return" | "purchase_return";
+  type: "sale" | "purchase" | "expense" | "sale_return" | "purchase_return" | "customer_payment" | "supplier_payment";
   description: string;
   amount: number;
   paid: number;
   remaining: number;
+  cashFlow: "in" | "out" | "none";
 }
 
 const DayBook = () => {
@@ -30,14 +35,32 @@ const DayBook = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
+  const [customerLedger, setCustomerLedger] = useState<CustomerLedgerEntry[]>([]);
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [customerMap, setCustomerMap] = useState<Record<string, string>>({});
+  const [supplierMap, setSupplierMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(navigator.onLine);
+  const [shopName, setShopName] = useState("Shop");
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, e, sr, pr] = await Promise.all([getAllSales(), getAllPurchases(), getAllExpenses(), getAllSaleReturns(), getAllPurchaseReturns()]);
+      const [s, p, e, sr, pr, cl, sp, custs, supps, settings] = await Promise.all([
+        getAllSales(), getAllPurchases(), getAllExpenses(), getAllSaleReturns(), getAllPurchaseReturns(),
+        getAllCustomerLedgerEntries(), getAllSupplierPayments(), getAllCustomers(), getAllSuppliers(),
+        getShopSettings(),
+      ]);
       setSales(s); setPurchases(p); setExpenses(e); setSaleReturns(sr); setPurchaseReturns(pr);
+      setCustomerLedger(cl); setSupplierPayments(sp);
+      const cm: Record<string, string> = {};
+      custs.forEach(c => { cm[c.localId] = c.name; });
+      setCustomerMap(cm);
+      const sm: Record<string, string> = {};
+      supps.forEach(s => { sm[s.localId] = s.name; });
+      setSupplierMap(sm);
+      setShopName(settings.shopName || "Shop");
     } finally { setLoading(false); }
   }, []);
 
@@ -56,6 +79,8 @@ const DayBook = () => {
   const dayExpenses = expenses.filter(e => isSameDay(new Date(e.date), currentDate));
   const daySaleReturns = saleReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
   const dayPurchaseReturns = purchaseReturns.filter(r => isSameDay(new Date(r.returnDate), currentDate));
+  const dayCustomerPayments = customerLedger.filter(l => l.type === "payment" && isSameDay(new Date(l.date), currentDate));
+  const daySupplierPayments = supplierPayments.filter(sp => isSameDay(new Date(sp.date), currentDate));
 
   // Totals
   const totalSales = daySales.reduce((a, s) => a + s.totalAmount, 0);
@@ -65,15 +90,17 @@ const DayBook = () => {
   const totalExpenseAmt = dayExpenses.reduce((a, e) => a + e.amount, 0);
   const totalSaleReturnAmt = daySaleReturns.reduce((a, r) => a + r.returnAmount, 0);
   const totalPurchaseReturnAmt = dayPurchaseReturns.reduce((a, r) => a + r.returnAmount, 0);
+  const totalCustomerPaymentsReceived = dayCustomerPayments.reduce((a, p) => a + p.amount, 0);
+  const totalSupplierPaymentsPaid = daySupplierPayments.reduce((a, p) => a + p.amount, 0);
 
   const totalCostOfSales = daySales.reduce((a, s) => a + s.items.reduce((b, i) => b + i.costPrice * i.quantity, 0), 0);
   const returnCost = daySaleReturns.reduce((a, r) => a + (r.costPrice || 0) * r.returnQuantity, 0);
   const grossProfit = (totalSales - totalSaleReturnAmt) - (totalCostOfSales - returnCost);
   const netProfit = grossProfit - totalExpenseAmt;
 
-  const cashIn = totalSalesPaid;
-  const cashOut = totalPurchasesPaid + totalExpenseAmt + totalSaleReturnAmt;
-  const netCashFlow = cashIn - cashOut + totalPurchaseReturnAmt;
+  const cashIn = totalSalesPaid + totalCustomerPaymentsReceived + totalPurchaseReturnAmt;
+  const cashOut = totalPurchasesPaid + totalExpenseAmt + totalSaleReturnAmt + totalSupplierPaymentsPaid;
+  const netCashFlow = cashIn - cashOut;
 
   // Build entries
   const entries: DayEntry[] = [
@@ -81,60 +108,137 @@ const DayBook = () => {
       time: format(new Date(s.saleDate), "HH:mm"),
       type: "sale" as const,
       description: `${s.invoiceNumber} — ${s.customerName}`,
-      amount: s.totalAmount,
-      paid: s.paidAmount,
-      remaining: s.remainingAmount,
+      amount: s.totalAmount, paid: s.paidAmount, remaining: s.remainingAmount,
+      cashFlow: "in" as const,
     })),
     ...dayPurchases.map(p => ({
       time: format(new Date(p.purchaseDate), "HH:mm"),
       type: "purchase" as const,
       description: `Purchase — ${p.supplierName}`,
-      amount: p.totalAmount,
-      paid: p.paidAmount,
-      remaining: p.totalAmount - p.paidAmount,
+      amount: p.totalAmount, paid: p.paidAmount, remaining: p.totalAmount - p.paidAmount,
+      cashFlow: "out" as const,
     })),
     ...dayExpenses.map(e => ({
       time: format(new Date(e.date), "HH:mm"),
       type: "expense" as const,
       description: e.title,
-      amount: e.amount,
-      paid: e.amount,
-      remaining: 0,
+      amount: e.amount, paid: e.amount, remaining: 0,
+      cashFlow: "out" as const,
     })),
     ...daySaleReturns.map(r => ({
       time: format(new Date(r.returnDate), "HH:mm"),
       type: "sale_return" as const,
       description: `Sale Return — ${r.productName}`,
-      amount: r.returnAmount,
-      paid: r.returnAmount,
-      remaining: 0,
+      amount: r.returnAmount, paid: r.returnAmount, remaining: 0,
+      cashFlow: "out" as const,
     })),
     ...dayPurchaseReturns.map(r => ({
       time: format(new Date(r.returnDate), "HH:mm"),
       type: "purchase_return" as const,
       description: `Purchase Return — ${r.productName}`,
-      amount: r.returnAmount,
-      paid: r.returnAmount,
-      remaining: 0,
+      amount: r.returnAmount, paid: r.returnAmount, remaining: 0,
+      cashFlow: "in" as const,
+    })),
+    ...dayCustomerPayments.map(p => ({
+      time: format(new Date(p.date), "HH:mm"),
+      type: "customer_payment" as const,
+      description: `Received from ${customerMap[p.customerLocalId] || "Customer"} — ${p.description}`,
+      amount: p.amount, paid: p.amount, remaining: 0,
+      cashFlow: "in" as const,
+    })),
+    ...daySupplierPayments.map(p => ({
+      time: format(new Date(p.date), "HH:mm"),
+      type: "supplier_payment" as const,
+      description: `Paid to ${supplierMap[p.supplierLocalId] || "Supplier"} — ${p.note || "Payment"}`,
+      amount: p.amount, paid: p.amount, remaining: 0,
+      cashFlow: "out" as const,
     })),
   ].sort((a, b) => a.time.localeCompare(b.time));
 
-  const typeIcon = (t: string) => {
-    if (t === "sale") return <ShoppingCart className="h-3 w-3 text-emerald-600" />;
-    if (t === "purchase") return <Package className="h-3 w-3 text-blue-600" />;
-    if (t === "sale_return") return <ArrowUpRight className="h-3 w-3 text-orange-600" />;
-    if (t === "purchase_return") return <ArrowDownRight className="h-3 w-3 text-purple-600" />;
-    return <Receipt className="h-3 w-3 text-destructive" />;
-  };
-
   const typeBadge = (t: string) => {
-    const colors: Record<string, string> = { 
-      sale: "bg-emerald-50 text-emerald-700", purchase: "bg-blue-50 text-blue-700", 
+    const colors: Record<string, string> = {
+      sale: "bg-emerald-50 text-emerald-700", purchase: "bg-blue-50 text-blue-700",
       expense: "bg-red-50 text-red-700", sale_return: "bg-orange-50 text-orange-700",
       purchase_return: "bg-purple-50 text-purple-700",
+      customer_payment: "bg-teal-50 text-teal-700", supplier_payment: "bg-indigo-50 text-indigo-700",
     };
-    const labels: Record<string, string> = { sale: "Sale", purchase: "Purchase", expense: "Expense", sale_return: "Sale Return", purchase_return: "Purch Return" };
+    const labels: Record<string, string> = {
+      sale: "Sale", purchase: "Purchase", expense: "Expense",
+      sale_return: "Sale Return", purchase_return: "Purch Return",
+      customer_payment: "Received", supplier_payment: "Paid",
+    };
     return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[t] || ""}`}>{labels[t] || t}</span>;
+  };
+
+  const handleDownloadPDF = () => {
+    const dateStr = format(currentDate, "dd-MM-yyyy");
+    const dateFull = format(currentDate, "dd MMMM yyyy");
+
+    let html = `
+      <html><head><title>Day Book - ${dateStr}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; color: #333; font-size: 12px; }
+        h1 { text-align: center; margin-bottom: 2px; font-size: 18px; }
+        h2 { text-align: center; margin-top: 2px; color: #666; font-size: 13px; font-weight: normal; }
+        .summary { display: flex; justify-content: space-between; margin: 15px 0; gap: 10px; }
+        .summary-box { border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; flex: 1; text-align: center; }
+        .summary-box .label { font-size: 10px; color: #888; text-transform: uppercase; }
+        .summary-box .value { font-size: 16px; font-weight: bold; margin-top: 2px; }
+        .green { color: #059669; } .red { color: #dc2626; } .blue { color: #2563eb; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #f3f4f6; padding: 6px 8px; text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 2px solid #e5e7eb; }
+        td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
+        .right { text-align: right; }
+        .cash-in { color: #059669; font-weight: 600; }
+        .cash-out { color: #dc2626; font-weight: 600; }
+        .footer { margin-top: 20px; text-align: center; font-size: 10px; color: #aaa; border-top: 1px solid #eee; padding-top: 8px; }
+        .cashflow { display: flex; justify-content: space-around; margin: 10px 0; padding: 8px; background: #f9fafb; border-radius: 6px; }
+        .cashflow div { text-align: center; }
+        .cashflow .label { font-size: 10px; color: #888; }
+        .cashflow .value { font-size: 14px; font-weight: bold; }
+        @media print { body { margin: 0; } }
+      </style></head><body>
+      <h1>${shopName}</h1>
+      <h2>Day Book — ${dateFull}</h2>
+      <div class="summary">
+        <div class="summary-box"><div class="label">Sales</div><div class="value green">Rs. ${totalSales.toLocaleString()}</div></div>
+        <div class="summary-box"><div class="label">Purchases</div><div class="value blue">Rs. ${totalPurchases.toLocaleString()}</div></div>
+        <div class="summary-box"><div class="label">Expenses</div><div class="value red">Rs. ${totalExpenseAmt.toLocaleString()}</div></div>
+        <div class="summary-box"><div class="label">Net Profit</div><div class="value ${netProfit >= 0 ? 'green' : 'red'}">Rs. ${Math.abs(netProfit).toLocaleString()}</div></div>
+      </div>
+      <div class="cashflow">
+        <div><div class="label">Cash In</div><div class="value green">Rs. ${cashIn.toLocaleString()}</div></div>
+        <div><div class="label">Cash Out</div><div class="value red">Rs. ${cashOut.toLocaleString()}</div></div>
+        <div><div class="label">Net Cash Flow</div><div class="value ${netCashFlow >= 0 ? 'green' : 'red'}">Rs. ${Math.abs(netCashFlow).toLocaleString()}</div></div>
+        <div><div class="label">Cust. Received</div><div class="value green">Rs. ${totalCustomerPaymentsReceived.toLocaleString()}</div></div>
+        <div><div class="label">Supp. Paid</div><div class="value red">Rs. ${totalSupplierPaymentsPaid.toLocaleString()}</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>Type</th><th>Description</th><th class="right">Amount</th><th class="right">Cash In</th><th class="right">Cash Out</th></tr></thead>
+        <tbody>`;
+
+    entries.forEach(e => {
+      const isIn = e.cashFlow === "in";
+      html += `<tr>
+        <td>${e.time}</td>
+        <td>${e.type.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</td>
+        <td>${e.description}</td>
+        <td class="right">Rs. ${e.amount.toLocaleString()}</td>
+        <td class="right ${isIn ? 'cash-in' : ''}">${isIn ? `Rs. ${e.paid.toLocaleString()}` : '—'}</td>
+        <td class="right ${!isIn ? 'cash-out' : ''}">${!isIn ? `Rs. ${e.paid.toLocaleString()}` : '—'}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table>
+      <div class="footer">Generated on ${format(new Date(), "dd MMM yyyy HH:mm")} — ${shopName}</div>
+      </body></html>`;
+
+    const printWin = window.open("", "_blank");
+    if (printWin) {
+      printWin.document.write(html);
+      printWin.document.close();
+      printWin.onload = () => { printWin.print(); };
+    }
   };
 
   return (
@@ -149,14 +253,17 @@ const DayBook = () => {
             {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             {online ? "Online" : "Offline"}
           </Badge>
+          <Button variant="outline" size="sm" className="gap-1" onClick={handleDownloadPDF}>
+            <Download className="h-3.5 w-3.5" /> PDF
+          </Button>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subDays(d, 1))}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card">
               <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              <Input type="date" className="h-6 text-xs border-0 p-0 w-28" 
-                value={format(currentDate, "yyyy-MM-dd")} 
+              <Input type="date" className="h-6 text-xs border-0 p-0 w-28"
+                value={format(currentDate, "yyyy-MM-dd")}
                 onChange={e => setCurrentDate(new Date(e.target.value))} />
             </div>
             <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => addDays(d, 1))}>
@@ -214,8 +321,8 @@ const DayBook = () => {
 
       {/* Cash Flow */}
       <Card>
-        <CardContent className="p-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <CardContent className="p-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-4 flex-wrap">
             <div>
               <p className="text-[10px] text-muted-foreground">Cash In</p>
               <p className="text-sm font-bold text-emerald-600">Rs. {cashIn.toLocaleString()}</p>
@@ -231,6 +338,16 @@ const DayBook = () => {
               <p className={`text-sm font-bold ${netCashFlow >= 0 ? "text-emerald-600" : "text-destructive"}`}>
                 Rs. {Math.abs(netCashFlow).toLocaleString()}
               </p>
+            </div>
+            <Separator orientation="vertical" className="h-8" />
+            <div>
+              <p className="text-[10px] text-muted-foreground">Cust. Received</p>
+              <p className="text-sm font-bold text-teal-600">Rs. {totalCustomerPaymentsReceived.toLocaleString()}</p>
+            </div>
+            <Separator orientation="vertical" className="h-8" />
+            <div>
+              <p className="text-[10px] text-muted-foreground">Supp. Paid</p>
+              <p className="text-sm font-bold text-indigo-600">Rs. {totalSupplierPaymentsPaid.toLocaleString()}</p>
             </div>
           </div>
           <Badge variant="outline" className="text-xs">{entries.length} transactions</Badge>
@@ -255,8 +372,8 @@ const DayBook = () => {
                   <TableHead className="text-[10px]">Type</TableHead>
                   <TableHead className="text-[10px]">Description</TableHead>
                   <TableHead className="text-[10px] text-right">Amount</TableHead>
-                  <TableHead className="text-[10px] text-right">Paid</TableHead>
-                  <TableHead className="text-[10px] text-right">Remaining</TableHead>
+                  <TableHead className="text-[10px] text-right">Cash In</TableHead>
+                  <TableHead className="text-[10px] text-right">Cash Out</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -266,9 +383,11 @@ const DayBook = () => {
                     <TableCell>{typeBadge(e.type)}</TableCell>
                     <TableCell className="text-xs max-w-[250px] truncate">{e.description}</TableCell>
                     <TableCell className="text-xs text-right font-semibold">Rs. {e.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-xs text-right text-emerald-600">Rs. {e.paid.toLocaleString()}</TableCell>
+                    <TableCell className="text-xs text-right text-emerald-600">
+                      {e.cashFlow === "in" ? `Rs. ${e.paid.toLocaleString()}` : "—"}
+                    </TableCell>
                     <TableCell className="text-xs text-right text-destructive">
-                      {e.remaining > 0 ? `Rs. ${e.remaining.toLocaleString()}` : "—"}
+                      {e.cashFlow === "out" ? `Rs. ${e.paid.toLocaleString()}` : "—"}
                     </TableCell>
                   </TableRow>
                 ))}
