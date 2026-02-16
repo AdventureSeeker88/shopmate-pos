@@ -16,6 +16,8 @@ interface Props {
 }
 
 const PaySupplierDialog = ({ open, onOpenChange, supplier, onPaid }: Props) => {
+  const isPayable = supplier?.balanceType === "payable";
+  const actionLabel = isPayable ? "Receive from Supplier" : "Pay to Supplier";
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -60,7 +62,7 @@ const PaySupplierDialog = ({ open, onOpenChange, supplier, onPaid }: Props) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Pay to {supplier?.name}</DialogTitle>
+          <DialogTitle>{actionLabel} — {supplier?.name}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -95,7 +97,7 @@ const PaySupplierDialog = ({ open, onOpenChange, supplier, onPaid }: Props) => {
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={loading}>{loading ? "Processing..." : "Pay"}</Button>
+            <Button type="submit" disabled={loading}>{loading ? "Processing..." : actionLabel}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

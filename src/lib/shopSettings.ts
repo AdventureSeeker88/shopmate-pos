@@ -5,6 +5,7 @@ export interface ShopSettings {
   currency: string;
   tagline: string;
   email: string;
+  invoiceMessage: string;
 }
 
 const STORAGE_KEY = "shopSettings";
@@ -16,6 +17,7 @@ const defaults: ShopSettings = {
   currency: "PKR",
   tagline: "",
   email: "",
+  invoiceMessage: "Thank you for your business!",
 };
 
 export const getShopSettings = (): ShopSettings => {

@@ -75,7 +75,7 @@ const SupplierList = ({ suppliers, onRefresh, onEdit, onPay, onViewLedger }: Pro
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" title="Pay" onClick={() => onPay(s)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" title={s.balanceType === "payable" ? "Receive from Supplier" : "Pay to Supplier"} onClick={() => onPay(s)}>
                         <CreditCard className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" title="Ledger" onClick={() => onViewLedger(s)}>

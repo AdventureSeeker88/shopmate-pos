@@ -316,7 +316,7 @@ export const recalculateBalanceLocal = async (supplierLocalId: string) => {
     else if ((entry.type as string) === "purchase_return") balance -= entry.amount;
   }
 
-  const balanceType = balance >= 0 ? "payable" : "receivable";
+  const balanceType = balance >= 0 ? "receivable" : "payable";
   const updated: Supplier = {
     ...supplier,
     currentBalance: Math.abs(balance),

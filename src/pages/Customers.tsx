@@ -198,7 +198,7 @@ const Customers = () => {
                           <TableCell className="text-xs">{format(new Date(c.createdAt), "dd MMM yyyy")}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => setPayCustomer(c)} title="Receive Payment"><CreditCard className="h-4 w-4 text-primary" /></Button>
+                              <Button variant="ghost" size="icon" onClick={() => setPayCustomer(c)} title={c.balanceType === "receivable" ? "Pay to Customer" : "Receive from Customer"}><CreditCard className="h-4 w-4 text-primary" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => setLedgerCustomer(c)} title="View Ledger"><BookOpen className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => handleEdit(c)}><Pencil className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" onClick={() => setDeleteConfirm(c)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
