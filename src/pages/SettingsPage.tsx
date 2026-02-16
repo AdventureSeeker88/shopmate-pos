@@ -65,6 +65,10 @@ const SettingsPage = () => {
               <Label>Tagline (optional)</Label>
               <Input value={settings.tagline} onChange={e => update("tagline", e.target.value)} placeholder="e.g. Your Trusted Mobile Partner" />
             </div>
+            <div className="space-y-2">
+              <Label>Invoice Footer Message</Label>
+              <Input value={settings.invoiceMessage} onChange={e => update("invoiceMessage", e.target.value)} placeholder="e.g. Thank you for your business!" />
+            </div>
           </CardContent>
         </Card>
 
@@ -97,8 +101,13 @@ const SettingsPage = () => {
               {settings.email && <p className="text-xs text-gray-500">Email: {settings.email}</p>}
               {settings.tagline && <p className="text-xs italic text-gray-400 mt-1">{settings.tagline}</p>}
               <div className="border-t border-gray-300 mt-3 pt-2">
-                <p className="text-sm font-bold tracking-widest uppercase">Purchase Invoice</p>
+                <p className="text-sm font-bold tracking-widest uppercase">Sale Invoice</p>
               </div>
+              {settings.invoiceMessage && (
+                <div className="border-t border-dashed border-gray-300 mt-3 pt-2">
+                  <p className="text-xs text-gray-500">{settings.invoiceMessage}</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

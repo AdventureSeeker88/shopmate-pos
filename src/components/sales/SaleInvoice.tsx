@@ -125,7 +125,7 @@ const SaleInvoice = ({ open, onOpenChange, sale }: Props) => {
           </div>
 
           <div className="footer">
-            <div>Thank you for your business!</div>
+            <div>{shop.invoiceMessage || "Thank you for your business!"}</div>
             <div>{shop.shopName || "Saim Mobile"} — {shop.phone || ""}</div>
           </div>
         </div>

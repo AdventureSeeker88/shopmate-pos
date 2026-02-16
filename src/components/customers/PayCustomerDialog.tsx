@@ -16,6 +16,8 @@ interface Props {
 }
 
 const PayCustomerDialog = ({ open, onOpenChange, customer, onPaid }: Props) => {
+  const isReceivable = customer?.balanceType === "receivable";
+  const actionLabel = isReceivable ? "Pay to Customer" : "Receive from Customer";
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -60,7 +62,7 @@ const PayCustomerDialog = ({ open, onOpenChange, customer, onPaid }: Props) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Receive Payment — {customer?.name}</DialogTitle>
+          <DialogTitle>{actionLabel} — {customer?.name}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -95,7 +97,7 @@ const PayCustomerDialog = ({ open, onOpenChange, customer, onPaid }: Props) => {
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={loading}>{loading ? "Processing..." : "Receive Payment"}</Button>
+            <Button type="submit" disabled={loading}>{loading ? "Processing..." : actionLabel}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
