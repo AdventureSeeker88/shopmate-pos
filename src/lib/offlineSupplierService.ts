@@ -312,7 +312,11 @@ export const recalculateBalanceLocal = async (supplierLocalId: string) => {
   let balance = supplier.openingBalance;
   for (const entry of ledgerEntries) {
     if (entry.type === "purchase") balance += entry.amount;
-    else if (entry.type === "payment") balance -= entry.amount;
+    else if (entry.type === "payment") {
+      // Payment always clears balance toward zero
+      if (balance >= 0) balance -= entry.amount; // reduce receivable (shop owes less)
+      else balance += entry.amount; // reduce payable (supplier owes less)
+    }
     else if ((entry.type as string) === "purchase_return") balance -= entry.amount;
   }
 
