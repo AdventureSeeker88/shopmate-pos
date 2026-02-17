@@ -9,12 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { getShopSettings, saveShopSettings, ShopSettings } from "@/lib/shopSettings";
 import { getOfflineCredentials, saveOfflineCredentials, OfflineCredentials } from "@/lib/offlineAuth";
-import { Store, Printer, Save, Lock } from "lucide-react";
+import { Store, Printer, Save, Lock, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const SettingsPage = () => {
   const { toast } = useToast();
   const [settings, setSettings] = useState<ShopSettings>(getShopSettings());
   const [creds, setCreds] = useState<OfflineCredentials>(getOfflineCredentials());
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearPassword, setClearPassword] = useState("");
 
   useEffect(() => {
     setSettings(getShopSettings());
@@ -137,11 +140,69 @@ const SettingsPage = () => {
             </Button>
           </CardContent>
         </Card>
+        {/* Clear Local Data */}
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-destructive"><Trash2 className="h-4 w-4" /> Clear Local Data</CardTitle>
+            <CardDescription>Permanently delete all locally stored data (sales, purchases, customers, suppliers, products, etc.)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="destructive" className="w-full gap-2" onClick={() => { setClearDialogOpen(true); setClearPassword(""); }}>
+              <Trash2 className="h-4 w-4" /> Clear All Local Data
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <Button onClick={handleSave} size="lg" className="gap-2">
         <Save className="h-4 w-4" /> Save Settings
       </Button>
+
+      {/* Clear Data Confirmation Dialog */}
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive">⚠️ Warning: Clear All Local Data</DialogTitle>
+            <DialogDescription>
+              This will permanently delete ALL locally stored data including sales, purchases, customers, suppliers, products, categories, expenses, and ledger entries. This action cannot be undone!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Enter password to confirm</Label>
+            <Input type="password" value={clearPassword} onChange={e => setClearPassword(e.target.value)} placeholder="Enter password" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => {
+              if (clearPassword !== "1234") {
+                toast({ title: "Wrong password", description: "Please enter the correct password to clear data.", variant: "destructive" });
+                return;
+              }
+              // Clear all IndexedDB and localStorage data
+              const keysToRemove = [];
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key !== "offlineCredentials" && key !== "shopSettings") {
+                  keysToRemove.push(key);
+                }
+              }
+              keysToRemove.forEach(key => localStorage.removeItem(key));
+              // Clear IndexedDB databases
+              if (window.indexedDB) {
+                indexedDB.databases?.().then(dbs => {
+                  dbs.forEach(db => { if (db.name) indexedDB.deleteDatabase(db.name); });
+                }).catch(() => {});
+              }
+              setClearDialogOpen(false);
+              setClearPassword("");
+              toast({ title: "Data cleared", description: "All local data has been deleted. Please refresh the app." });
+              setTimeout(() => window.location.reload(), 1500);
+            }}>
+              Clear All Data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
