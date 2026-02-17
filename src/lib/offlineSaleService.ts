@@ -278,11 +278,50 @@ export const getAllSales = async (): Promise<Sale[]> => {
 
 export const getSaleReturns = async (saleLocalId: string): Promise<SaleReturn[]> => {
   const db = await getDB();
+  await pullSaleReturnsFromFirebase().catch(console.warn);
   return db.getAllFromIndex("saleReturns", "by-sale", saleLocalId);
+};
+
+const pullSaleReturnsFromFirebase = async () => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    const snap = await getDocs(query(collection(firestore, "saleReturns"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
+    const existing = await db.getAll("saleReturns");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("saleReturns", local.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("saleReturns");
+    const hasPending = remainingLocal.some(r => r.syncStatus === "pending");
+    for (const docSnap of snap.docs) {
+      if (!hasPending && !remainingLocal.find(r => r.id === docSnap.id)) {
+        const d = docSnap.data();
+        await db.put("saleReturns", {
+          id: docSnap.id, localId: generateLocalId(),
+          saleLocalId: d.saleLocalId || "", saleId: d.saleId || "",
+          productLocalId: d.productLocalId || "", productName: d.productName || "",
+          returnQuantity: d.returnQuantity || 0, returnIMEIs: d.returnIMEIs || [],
+          returnReason: d.returnReason || "", returnAmount: d.returnAmount || 0,
+          costPrice: d.costPrice || 0,
+          returnDate: d.returnDate?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          createdAt: d.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          syncStatus: "synced" as const,
+        });
+      }
+    }
+  } catch (e) { console.warn("Pull sale returns failed:", e); }
 };
 
 export const getAllSaleReturns = async (): Promise<SaleReturn[]> => {
   const db = await getDB();
+  pullSaleReturnsFromFirebase().catch(console.warn);
   return (await db.getAll("saleReturns")).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 

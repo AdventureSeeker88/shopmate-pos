@@ -201,9 +201,50 @@ export const getCustomerByLocalId = async (localId: string): Promise<Customer | 
   return db.get("customers", localId);
 };
 
+// Pull customer ledger from Firebase
+const pullCustomerLedgerFromFirebase = async (customerLocalId: string) => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    const customer = await db.get("customers", customerLocalId);
+    if (!customer?.id) return;
+
+    const snap = await getDocs(query(collection(firestore, "customerLedger"), orderBy("createdAt", "desc")));
+    const customerDocs = snap.docs.filter(d => d.data().customerId === customer.id);
+    const firebaseIds = new Set(customerDocs.map(d => d.id));
+    const existing = await db.getAllFromIndex("customerLedger", "by-customer", customerLocalId);
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("customerLedger", local.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAllFromIndex("customerLedger", "by-customer", customerLocalId);
+    const hasPending = remainingLocal.some(r => r.syncStatus === "pending");
+    for (const docSnap of customerDocs) {
+      if (!hasPending && !remainingLocal.find(l => l.id === docSnap.id)) {
+        const d = docSnap.data();
+        await db.put("customerLedger", {
+          id: docSnap.id, localId: generateLocalId(),
+          customerId: d.customerId || "", customerLocalId,
+          date: d.date?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          type: d.type || "sale", description: d.description || "",
+          amount: d.amount || 0,
+          createdAt: d.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          syncStatus: "synced" as const,
+        });
+      }
+    }
+  } catch (e) { console.warn("Pull customer ledger failed:", e); }
+};
+
 // Ledger
 export const getCustomerLedger = async (customerLocalId: string): Promise<CustomerLedgerEntry[]> => {
   const db = await getDB();
+  pullCustomerLedgerFromFirebase(customerLocalId).catch(console.warn);
   return (await db.getAllFromIndex("customerLedger", "by-customer", customerLocalId))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 };
@@ -300,8 +341,49 @@ export const syncCustomers = async () => {
 };
 
 let syncListenerAdded = false;
+const pullAllCustomerLedgerFromFirebase = async () => {
+  if (!isOnline()) return;
+  const db = await getDB();
+  try {
+    const snap = await getDocs(query(collection(firestore, "customerLedger"), orderBy("createdAt", "desc")));
+    const firebaseIds = new Set(snap.docs.map(d => d.id));
+    const existing = await db.getAll("customerLedger");
+
+    // Remove local synced records not in Firebase
+    for (const local of existing) {
+      if (local.syncStatus === "synced" && local.id && !firebaseIds.has(local.id)) {
+        await db.delete("customerLedger", local.localId);
+      }
+    }
+
+    // Add new records from Firebase
+    const remainingLocal = await db.getAll("customerLedger");
+    const hasPending = remainingLocal.some(r => r.syncStatus === "pending");
+    const allCustomers = await db.getAll("customers");
+
+    for (const docSnap of snap.docs) {
+      if (!hasPending && !remainingLocal.find(l => l.id === docSnap.id)) {
+        const d = docSnap.data();
+        // Find matching local customer by firebase ID
+        const matchingCustomer = allCustomers.find(c => c.id === d.customerId);
+        await db.put("customerLedger", {
+          id: docSnap.id, localId: generateLocalId(),
+          customerId: d.customerId || "",
+          customerLocalId: matchingCustomer?.localId || d.customerLocalId || "",
+          date: d.date?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          type: d.type || "sale", description: d.description || "",
+          amount: d.amount || 0,
+          createdAt: d.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+          syncStatus: "synced" as const,
+        });
+      }
+    }
+  } catch (e) { console.warn("Pull all customer ledger failed:", e); }
+};
+
 export const getAllCustomerLedgerEntries = async (): Promise<CustomerLedgerEntry[]> => {
   const db = await getDB();
+  pullAllCustomerLedgerFromFirebase().catch(console.warn);
   return db.getAll("customerLedger");
 };
 
