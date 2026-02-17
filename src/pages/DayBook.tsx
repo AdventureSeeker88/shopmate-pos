@@ -219,8 +219,8 @@ const DayBook = () => {
       <h1>${shopName}</h1>
       <h2>Day Book — ${dateFull}</h2>
       <div class="summary">
-        <div class="summary-box"><div class="label">Sales</div><div class="value green">Rs. ${totalSales.toLocaleString()}</div></div>
-        <div class="summary-box"><div class="label">Purchases</div><div class="value blue">Rs. ${totalPurchases.toLocaleString()}</div></div>
+        <div class="summary-box"><div class="label">Sales</div><div class="value green">Rs. ${totalSales.toLocaleString()}</div>${totalSaleReturnAmt > 0 ? `<div style="font-size:9px;color:#ea580c;">Returns: Rs. ${totalSaleReturnAmt.toLocaleString()} | Net: Rs. ${(totalSales - totalSaleReturnAmt).toLocaleString()}</div>` : ''}</div>
+        <div class="summary-box"><div class="label">Purchases</div><div class="value blue">Rs. ${totalPurchases.toLocaleString()}</div>${totalPurchaseReturnAmt > 0 ? `<div style="font-size:9px;color:#9333ea;">Returns: Rs. ${totalPurchaseReturnAmt.toLocaleString()} | Net: Rs. ${(totalPurchases - totalPurchaseReturnAmt).toLocaleString()}</div>` : ''}</div>
         <div class="summary-box"><div class="label">Expenses</div><div class="value red">Rs. ${totalExpenseAmt.toLocaleString()}</div></div>
         <div class="summary-box"><div class="label">Net Profit</div><div class="value ${netProfit >= 0 ? 'green' : 'red'}">Rs. ${Math.abs(netProfit).toLocaleString()}</div></div>
       </div>
@@ -302,7 +302,12 @@ const DayBook = () => {
               <span className="text-xs text-muted-foreground font-medium">Sales</span>
             </div>
             <p className="text-lg font-bold text-emerald-700">Rs. {totalSales.toLocaleString()}</p>
-            <p className="text-[10px] text-muted-foreground">Received: Rs. {totalSalesPaid.toLocaleString()}</p>
+            {totalSaleReturnAmt > 0 && (
+              <p className="text-[10px] text-orange-600 font-medium">Returns: Rs. {totalSaleReturnAmt.toLocaleString()} ({daySaleReturns.length})</p>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Net: Rs. {(totalSales - totalSaleReturnAmt).toLocaleString()} | Received: Rs. {totalSalesPaid.toLocaleString()}
+            </p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50/50 border-blue-200/50">
@@ -312,7 +317,12 @@ const DayBook = () => {
               <span className="text-xs text-muted-foreground font-medium">Purchases</span>
             </div>
             <p className="text-lg font-bold text-blue-700">Rs. {totalPurchases.toLocaleString()}</p>
-            <p className="text-[10px] text-muted-foreground">Paid: Rs. {totalPurchasesPaid.toLocaleString()}</p>
+            {totalPurchaseReturnAmt > 0 && (
+              <p className="text-[10px] text-purple-600 font-medium">Returns: Rs. {totalPurchaseReturnAmt.toLocaleString()} ({dayPurchaseReturns.length})</p>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Net: Rs. {(totalPurchases - totalPurchaseReturnAmt).toLocaleString()} | Paid: Rs. {totalPurchasesPaid.toLocaleString()}
+            </p>
           </CardContent>
         </Card>
         <Card className="bg-red-50/50 border-red-200/50">
@@ -335,6 +345,9 @@ const DayBook = () => {
               Rs. {Math.abs(netProfit).toLocaleString()}
             </p>
             <p className="text-[10px] text-muted-foreground">Gross: Rs. {grossProfit.toLocaleString()}</p>
+            {(totalSaleReturnAmt > 0 || totalPurchaseReturnAmt > 0) && (
+              <p className="text-[10px] text-orange-600">Margin adjusted for returns</p>
+            )}
           </CardContent>
         </Card>
       </div>
