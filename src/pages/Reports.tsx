@@ -208,7 +208,10 @@ const Reports = () => {
               <span className="text-[10px] text-muted-foreground font-medium">Sales</span>
             </div>
             <p className="text-lg font-bold">Rs. {totalSalesAmt.toLocaleString()}</p>
-            <p className="text-[10px] text-muted-foreground">{filteredSales.length} invoices</p>
+            {totalSaleReturnAmt > 0 && (
+              <p className="text-[10px] text-orange-600 font-medium">Returns: Rs. {totalSaleReturnAmt.toLocaleString()} ({filteredSaleReturns.length})</p>
+            )}
+            <p className="text-[10px] text-muted-foreground">Net: Rs. {(totalSalesAmt - totalSaleReturnAmt).toLocaleString()} | {filteredSales.length} invoices</p>
           </CardContent>
         </Card>
         <Card>
@@ -218,7 +221,10 @@ const Reports = () => {
               <span className="text-[10px] text-muted-foreground font-medium">Purchases</span>
             </div>
             <p className="text-lg font-bold">Rs. {totalPurchasesAmt.toLocaleString()}</p>
-            <p className="text-[10px] text-muted-foreground">{filteredPurchases.length} orders</p>
+            {totalPurchaseReturnAmt > 0 && (
+              <p className="text-[10px] text-purple-600 font-medium">Returns: Rs. {totalPurchaseReturnAmt.toLocaleString()} ({filteredPurchaseReturns.length})</p>
+            )}
+            <p className="text-[10px] text-muted-foreground">Net: Rs. {(totalPurchasesAmt - totalPurchaseReturnAmt).toLocaleString()} | {filteredPurchases.length} orders</p>
           </CardContent>
         </Card>
         <Card>
@@ -228,7 +234,10 @@ const Reports = () => {
               <span className="text-[10px] text-muted-foreground font-medium">Gross Margin</span>
             </div>
             <p className="text-lg font-bold text-emerald-600">Rs. {totalMargin.toLocaleString()}</p>
-            <p className="text-[10px] text-muted-foreground">{totalSalesAmt > 0 ? ((totalMargin / totalSalesAmt) * 100).toFixed(1) : 0}%</p>
+            <p className="text-[10px] text-muted-foreground">
+              {totalSalesAmt > 0 ? ((totalMargin / totalSalesAmt) * 100).toFixed(1) : 0}%
+              {(totalSaleReturnAmt > 0) && " (adjusted for returns)"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -267,9 +276,12 @@ const Reports = () => {
         <TabsContent value="sales" className="mt-3">
           <Card>
             <CardHeader className="pb-2">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-2">
                 <CardTitle className="text-sm">Sales Report — {periodLabel}</CardTitle>
-                <div className="flex gap-3 text-xs">
+                <div className="flex gap-3 text-xs flex-wrap">
+                  <span>Total: <strong>Rs. {totalSalesAmt.toLocaleString()}</strong></span>
+                  {totalSaleReturnAmt > 0 && <span>Returns: <strong className="text-orange-600">Rs. {totalSaleReturnAmt.toLocaleString()}</strong></span>}
+                  <span>Net: <strong className="text-emerald-600">Rs. {(totalSalesAmt - totalSaleReturnAmt).toLocaleString()}</strong></span>
                   <span>Paid: <strong className="text-emerald-600">Rs. {totalSalesPaid.toLocaleString()}</strong></span>
                   <span>Pending: <strong className="text-destructive">Rs. {totalSalesRemaining.toLocaleString()}</strong></span>
                 </div>
@@ -558,7 +570,7 @@ const Reports = () => {
             <CardContent className="space-y-3 p-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="rounded-lg border p-3">
-                  <p className="text-[10px] text-muted-foreground">Total Revenue</p>
+                  <p className="text-[10px] text-muted-foreground">Total Sales</p>
                   <p className="text-lg font-bold">Rs. {totalSalesAmt.toLocaleString()}</p>
                 </div>
                 <div className="rounded-lg border p-3">
@@ -579,9 +591,46 @@ const Reports = () => {
                 </div>
               </div>
 
+              {/* Returns Impact */}
+              {(totalSaleReturnAmt > 0 || totalPurchaseReturnAmt > 0) && (
+                <>
+                  <Separator />
+                  <div>
+                    <h3 className="text-xs font-semibold mb-2">Returns Impact on Margin</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {totalSaleReturnAmt > 0 && (
+                        <>
+                          <div className="rounded-lg border border-orange-200 p-3">
+                            <p className="text-[10px] text-muted-foreground">Sale Returns</p>
+                            <p className="text-sm font-bold text-orange-600">Rs. {totalSaleReturnAmt.toLocaleString()}</p>
+                            <p className="text-[10px] text-muted-foreground">{filteredSaleReturns.length} returns</p>
+                          </div>
+                          <div className="rounded-lg border border-orange-200 p-3">
+                            <p className="text-[10px] text-muted-foreground">Margin Lost (Returns)</p>
+                            <p className="text-sm font-bold text-orange-600">Rs. {(totalSaleReturnAmt - totalSaleReturnCost).toLocaleString()}</p>
+                            <p className="text-[10px] text-muted-foreground">Cost recovered: Rs. {totalSaleReturnCost.toLocaleString()}</p>
+                          </div>
+                        </>
+                      )}
+                      {totalPurchaseReturnAmt > 0 && (
+                        <div className="rounded-lg border border-purple-200 p-3">
+                          <p className="text-[10px] text-muted-foreground">Purchase Returns</p>
+                          <p className="text-sm font-bold text-purple-600">Rs. {totalPurchaseReturnAmt.toLocaleString()}</p>
+                          <p className="text-[10px] text-muted-foreground">{filteredPurchaseReturns.length} returns</p>
+                        </div>
+                      )}
+                      <div className="rounded-lg border p-3">
+                        <p className="text-[10px] text-muted-foreground">Net Sales (after returns)</p>
+                        <p className="text-sm font-bold">Rs. {(totalSalesAmt - totalSaleReturnAmt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               <Separator />
 
-              {/* Top 5 profitable items */}
+              {/* Top profitable items */}
               <div>
                 <h3 className="text-xs font-semibold mb-2">Top Profitable Items</h3>
                 <Table>
